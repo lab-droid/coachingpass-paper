@@ -1,0 +1,5 @@
+{
+  "name": "코칭패스 서류 첨삭 AI",
+  "description": "서류평가위원의 관점에서 서류를 분석하고, 수정 제안 및 상세 첨삭 이유를 제공하는 AI 서비스입니다.",
+  "requestFramePermissions": []
+}
