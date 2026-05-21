@@ -208,6 +208,9 @@ export default function App() {
          - isSpecialRequestRelated: 해당 수정 사항이 사용자의 요청사항("${specialRequest || '없음'}")과 직접적으로 관련이 있는지 여부
        - finalAdvice: 서류 전체를 검토한 후, 서류평가위원의 입장에서 내리는 총평과 향후 전략.
          - 다음 소제목들을 반드시 포함하여 방대하게 작성하세요: [총평], [핵심 역량 요약], [치명적 감점 요인], [전략적 제언], [향후 보완 전략 (예상 면접 질문 및 개발 필요 역량 포함)].
+         - 소제목은 반드시 대괄호([])로 감싸서 한 줄에 단독으로 작성하세요 (예: [총평]).
+         - 각 항목 내에서 의미가 전환될 때마다 반드시 1줄의 빈 줄(Enter)을 넣어 문단을 명확히 분리하세요.
+         - 핵심 키워드나 중요한 문구는 반드시 **강조할 내용** 처럼 별표 두 개(**)로 감싸서 강조하세요.
          - 주의사항: 직무 적합도나 서류 경쟁력 점수 등 어떠한 형태의 '점수'도 절대 포함하지 마세요.
          - 절대 '\n\n' 문자열을 그대로 출력하지 말고 실제 줄바꿈을 사용하세요.
       `;
@@ -790,12 +793,38 @@ export default function App() {
                             </div>
                             <h4 className="text-2xl font-black tracking-tight">평가위원의 최종 조언</h4>
                           </div>
-                          <div className="text-black/80 text-lg leading-[2] font-medium whitespace-pre-wrap">
-                            {finalAdvice.split('\n').map((line, i) => (
-                              <p key={i} className="mb-4">
-                                {line}
-                              </p>
-                            ))}
+                          <div className="text-black/80 text-lg leading-[2] font-medium whitespace-pre-wrap break-keep">
+                            {finalAdvice.split('\n').map((line, i) => {
+                              const trimmed = line.trim();
+                              if (!trimmed) return <div key={i} className="h-4" />;
+                              
+                              const titleMatch = trimmed.match(/^(\d+\.\s*)?\[(.*?)\]$/);
+                              if (titleMatch) {
+                                return (
+                                  <div key={i} className="mt-8 mb-4">
+                                    <span className="inline-block px-5 py-2.5 bg-gradient-to-r from-[#1E293B] to-[#0F172A] text-metallic-gold font-bold text-lg rounded-xl shadow-md border border-white/10 tracking-tight">
+                                      {titleMatch[1] || ''}{titleMatch[2]}
+                                    </span>
+                                  </div>
+                                );
+                              }
+
+                              const parts = trimmed.split(/(\*\*.*?\*\*)/g);
+                              return (
+                                <p key={i} className="mb-3">
+                                  {parts.map((part, j) => {
+                                    if (part.startsWith('**') && part.endsWith('**')) {
+                                      return (
+                                        <span key={j} className="font-extrabold text-blue-900 bg-blue-100/70 px-1.5 py-0.5 rounded">
+                                          {part.slice(2, -2)}
+                                        </span>
+                                      );
+                                    }
+                                    return part;
+                                  })}
+                                </p>
+                              );
+                            })}
                           </div>
                         </div>
                       </motion.div>
