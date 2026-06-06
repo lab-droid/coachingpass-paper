@@ -4,7 +4,6 @@
  */
 
 import React, { useState, useRef } from 'react';
-import { GoogleGenAI, Type } from "@google/genai";
 import { 
   FileText, 
   Upload, 
@@ -16,12 +15,11 @@ import {
   FileUp,
   MessageSquareQuote,
   ShieldCheck,
-  RotateCcw
+  RotateCcw,
+  X,
+  Key
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-
-// Initialize Gemini
-const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 interface Correction {
   original: string;
@@ -56,6 +54,10 @@ export default function App() {
   const [finalAdvice, setFinalAdvice] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [customApiKey, setCustomApiKey] = useState<string>(() => localStorage.getItem('user_gemini_api_key') || '');
+  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
+  const [modalApiKeyInput, setModalApiKeyInput] = useState(() => localStorage.getItem('user_gemini_api_key') || '');
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const selectedFile = e.target.files[0];
@@ -73,6 +75,11 @@ export default function App() {
   const processDocument = async () => {
     if (!file) return;
 
+    if (!name.trim()) {
+      setError('지원자 성함을 입력해주세요.');
+      return;
+    }
+
     let progressInterval: NodeJS.Timeout | null = null;
 
     try {
@@ -81,9 +88,6 @@ export default function App() {
       setCorrections([]);
       setProgress(0);
       setProgressMessage('파일 추출 준비 중...');
-
-      // Initialize Gemini inside the function to ensure fresh API key
-      const genAIInstance = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
       // Helper to extract text from a file
       const extractText = async (targetFile: File) => {
@@ -173,114 +177,40 @@ export default function App() {
         setProgress(p => p < 95 ? p + 1 : p);
       }, 600);
 
-      // 2. Analyze with Gemini
-      // Switch to a faster, supported model to avoid 404 errors and 504 timeouts
-      const modelId = "gemini-3-flash-preview";
-      
-      const parts: any[] = [];
-      let promptText = `
-       당신은 코칭패스의 '수석 서류평가위원'이자 대기업/공기업 채용 설계를 담당했던 HR 전문가입니다.
-       제공된 서류 내용을 매우 날카롭고 세밀하게 분석하여, '합격할 수밖에 없는 서류'로 완벽하게 재탄생시키기 위한 독설적이면서도 건설적인 초정밀 첨삭 리포트를 작성하세요.
-       전체적인 리포트의 분량은 평소보다 2배 이상, 최대한 방대하고 수준 높게 구성해야 합니다.
-       
-       전문 가이드라인:
-       1. 양적/질적 팽창: 분석 리포트의 전체 분량은 최소 3,000자 이상을 목표로 매우 방대하게 작성해야 합니다. 
-       2. 무자비한 분석: 문장 하나하나를 쪼개어 분석하세요. 단순히 문법 교정이 아니라, 단어 선택이 주는 인상, 문장의 호흡, 논리적 허점 등 전문가만이 포착할 수 있는 지점을 최소 15개 이상의 수정 사항(corrections)으로 찾아내세요.
-       3. 역량의 구체적 증명: "열심히 했다"는 식의 추상적 표현은 모두 배제하고, 참고 서류(이력서 등)에 있는 수치, 성과, 구체적 액션을 활용하여 신뢰도를 300% 높이세요.
-       4. 비즈니스 임팩트: 지원자의 경험이 회사에 어떤 이익을 줄 수 있는지(ROI 관점)가 명확히 드러나도록 문장을 완전히 재구성하세요.
-       5. 시각적 가독성 극대화: 
-          - 각 문단은 최대 2줄을 넘지 않도록 매우 세밀하게 나눕니다.
-          - 모든 소제목마다 문단을 구분하고 공백 라인을 두세요.
-
-       ${specialRequest ? `특히 다음 요청사항에 집중하여 평가위원의 시각에서 첨삭을 진행해주세요: "${specialRequest}"\n` : ''}
-       
-       분석 및 첨삭 가이드라인 (평가위원 관점):
-       1. 채용공고 적합성: ${jobPostingData ? '제공된 채용공고의 직무 기술서(JD)와 자격 요건을 바탕으로, 지원자가 해당 직무에 얼마나 최적화된 인재인지 평가하고 부족한 키워드를 삽입하세요.' : '지원 직무의 일반적인 요구 역량과 비교하여 전문성이 드러나는지 확인하세요.'}
-       ${jobMaterialData ? '1-1. 직무자료 반영: 제공된 직무자료를 바탕으로 해당 직무에 대한 깊은 이해도를 반영하여, 지원자의 경험이 실무에 어떻게 적용될 수 있는지 구체적으로 첨삭하세요.\n' : ''}
-       ${experienceData ? '1-2. 경험정리 반영: 제공된 경험정리 자료를 바탕으로 지원자의 구체적인 경험과 성과를 자소서에 자연스럽게 녹여내고, 추상적인 표현을 구체적인 사례로 대체하세요.\n' : ''}
-       ${referenceData ? '1-3. 참고자료 활용: 제공된 참고자료의 내용을 분석하여 첨삭 시 필요한 배경 지식이나 보충 정보로 적극 활용하세요.\n' : ''}
-       
-       응답 형식 (JSON):
-       - corrections: 수정 사항들의 배열 (최소 15개 이상, 가능한 한 많이 찾아내어 매우 상세하게 작성)
-         - original: 수정이 필요한 원본 문장/문항
-         - corrected: 평가위원이 합격시키고 싶을 정도로 압도적으로 개선된 제안 문장 (전문적이고 파괴력 있는 표현 사용)
-         - reason: 평가위원의 관점 및 비즈니스 임팩트(기대 효과)를 포함하여 상세히 작성한 분석. 이 문장이 왜 수정되어야 하는지 명확히 설명하세요.
-         - isSpecialRequestRelated: 해당 수정 사항이 사용자의 요청사항("${specialRequest || '없음'}")과 직접적으로 관련이 있는지 여부
-       - finalAdvice: 서류 전체를 검토한 후, 서류평가위원의 입장에서 내리는 총평과 향후 전략.
-         - 다음 소제목들을 반드시 포함하여 방대하게 작성하세요: [총평], [핵심 역량 요약], [치명적 감점 요인], [전략적 제언], [향후 보완 전략 (예상 면접 질문 및 개발 필요 역량 포함)].
-         - 소제목은 반드시 대괄호([])로 감싸서 한 줄에 단독으로 작성하세요 (예: [총평]).
-         - 각 항목 내에서 의미가 전환될 때마다 반드시 1줄의 빈 줄(Enter)을 넣어 문단을 명확히 분리하세요.
-         - 핵심 키워드나 중요한 문구는 반드시 **강조할 내용** 처럼 별표 두 개(**)로 감싸서 강조하세요.
-         - 주의사항: 직무 적합도나 서류 경쟁력 점수 등 어떠한 형태의 '점수'도 절대 포함하지 마세요.
-         - 절대 '\n\n' 문자열을 그대로 출력하지 말고 실제 줄바꿈을 사용하세요.
-      `;
-
-      parts.push({ text: promptText });
-
-      const addDocumentPart = (name: string, data: any) => {
-        if (!data) return;
-        if (data.text) {
-          parts.push({ text: `\n[${name} 내용]\n${data.text.substring(0, 10000)}\n` });
-        } else if (data.image) {
-          parts.push({ text: `\n[${name} 이미지]\n` });
-          parts.push({
-            inlineData: {
-              mimeType: data.image.mimeType,
-              data: data.image.data
-            }
-          });
-        }
-      };
-
-      addDocumentPart('채용공고 (Target)', jobPostingData);
-      addDocumentPart('참고용 이력서', resumeData);
-      addDocumentPart('참고용 경력기술서', careerData);
-      addDocumentPart('참고용 포트폴리오', portfolioData);
-      addDocumentPart('참고용 직무자료', jobMaterialData);
-      addDocumentPart('참고용 경험정리', experienceData);
-      addDocumentPart('참고자료', referenceData);
-
-      parts.push({ text: `\n[주요 서류 내용]:\n` });
-      if (mainData.text) {
-        parts.push({ text: mainData.text.substring(0, 15000) });
-      } else if (mainData.image) {
-        parts.push({
-          inlineData: {
-            mimeType: mainData.image.mimeType,
-            data: mainData.image.data
-          }
-        });
-      }
-
-      const response = await genAIInstance.models.generateContent({
-        model: modelId,
-        contents: [{ parts }],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              corrections: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    original: { type: Type.STRING },
-                    corrected: { type: Type.STRING },
-                    reason: { type: Type.STRING },
-                    isSpecialRequestRelated: { type: Type.BOOLEAN },
-                  },
-                  required: ["original", "corrected", "reason", "isSpecialRequestRelated"],
-                },
-              },
-              finalAdvice: { type: Type.STRING },
-            },
-            required: ["corrections", "finalAdvice"],
-          },
+      // 2. Analyze with Gemini on the server side to protect API keys and prevent runtime failures
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': customApiKey || '',
         },
+        body: JSON.stringify({
+          name,
+          specialRequest,
+          mainData,
+          jobPostingData,
+          resumeData,
+          careerData,
+          portfolioData,
+          jobMaterialData,
+          experienceData,
+          referenceData
+        })
       });
 
-      const resultText = response.text;
+      if (!response.ok) {
+        let errMsg = '';
+        try {
+          const errData = await response.json();
+          errMsg = errData.error || '알 수 없는 오류';
+        } catch {
+          errMsg = `HTTP error ${response.status}`;
+        }
+        throw new Error(`AI 분석 중 오류가 발생했습니다: ${errMsg}`);
+      }
+
+      const responseData = await response.json();
+      const resultText = responseData.resultText;
       if (!resultText) throw new Error('AI 분석 결과가 비어있습니다.');
       
       let parsedResult: AnalysisResult;
@@ -390,15 +320,35 @@ export default function App() {
       <header className="bg-black/80 backdrop-blur-md border-b border-white/10 sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-gradient-to-br from-metallic-gold to-deep-gold p-2 rounded-xl shadow-lg shadow-metallic-gold/20">
-              <ShieldCheck className="w-6 h-6 text-black" />
+            <div className="relative w-10 h-10 rounded-xl overflow-hidden shadow-lg shadow-metallic-gold/15 border border-metallic-gold/30">
+              <img 
+                id="header-logo-image"
+                src="/logo.png" 
+                alt="CoachingPass Logo" 
+                className="w-full h-full object-cover"
+                referrerPolicy="no-referrer"
+              />
             </div>
             <h1 className="text-xl font-black tracking-tighter text-white">
               코칭패스 <span className="text-metallic-gold">서류 첨삭 AI</span>
             </h1>
           </div>
-          <div className="text-[10px] font-bold tracking-widest text-metallic-gold border border-metallic-gold/30 px-3 py-1 rounded-full uppercase">
-            Professional Reviewer AI
+          <div className="flex items-center gap-2.5">
+            <button 
+              id="api-key-auth-btn"
+              onClick={() => {
+                const storedKey = localStorage.getItem('user_gemini_api_key') || '';
+                setModalApiKeyInput(storedKey);
+                setIsApiKeyModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 text-[11px] font-bold tracking-tight text-white hover:text-metallic-gold bg-white/5 border border-white/10 hover:border-metallic-gold/50 px-3.5 py-1.5 rounded-full transition-all duration-300 shadow-md hover:shadow-metallic-gold/10 cursor-pointer"
+            >
+              <ShieldCheck className={`w-3.5 h-3.5 ${customApiKey ? 'text-green-400' : 'text-gray-400'}`} />
+              <span>{customApiKey ? 'API Key 인증됨' : 'API Key 인증'}</span>
+            </button>
+            <div className="hidden sm:block text-[10px] font-bold tracking-widest text-metallic-gold border border-metallic-gold/30 px-3 py-1.5 rounded-full uppercase">
+              전문 평가위원 AI
+            </div>
           </div>
         </div>
       </header>
@@ -428,7 +378,7 @@ export default function App() {
               <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-metallic-gold to-transparent opacity-50" />
               
               <div className="space-y-3">
-                <label className="text-xs font-bold text-metallic-gold uppercase tracking-widest ml-1">Applicant Name</label>
+                <label className="text-xs font-bold text-metallic-gold uppercase tracking-widest ml-1">지원자 이름</label>
                 <input 
                   type="text"
                   value={name}
@@ -439,7 +389,7 @@ export default function App() {
               </div>
 
               <div className="space-y-3">
-                <label className="text-xs font-bold text-metallic-gold uppercase tracking-widest ml-1">Special Request</label>
+                <label className="text-xs font-bold text-metallic-gold uppercase tracking-widest ml-1">특별 요청사항</label>
                 <textarea 
                   value={specialRequest}
                   onChange={(e) => setSpecialRequest(e.target.value)}
@@ -600,7 +550,7 @@ export default function App() {
                   <p className={`font-bold text-lg ${file ? 'text-white' : 'text-gray-400'}`}>
                     {file ? file.name : '서류 파일을 업로드하세요'}
                   </p>
-                  <p className="text-xs text-gray-600 mt-2 tracking-wide">ONLY .DOCX / .PDF / .PNG / .JPG</p>
+                  <p className="text-xs text-gray-600 mt-2 tracking-wide">.DOCX / .PDF / .PNG / .JPG 파일만 지원</p>
                 </div>
               </div>
 
@@ -645,7 +595,7 @@ export default function App() {
                   `}
                 >
                   <FileUp className="w-6 h-6" />
-                  PREMIUM ANALYSIS
+                  프리미엄 첨삭 시작
                 </button>
               )}
             </div>
@@ -653,8 +603,8 @@ export default function App() {
             {/* Features */}
             <div className="grid grid-cols-1 gap-5">
               {[
-                { icon: CheckCircle2, title: "GOLD HIGHLIGHT", desc: "핵심 개선 포인트를 시각적으로 완벽하게 분리합니다.", color: "text-metallic-gold" },
-                { icon: MessageSquareQuote, title: "HR INSIGHT", desc: "실제 채용 담당자의 시각에서 논리적 근거를 제시합니다.", color: "text-white" }
+                { icon: CheckCircle2, title: "골드 하이라이트", desc: "핵심 개선 포인트를 시각적으로 완벽하게 분리합니다.", color: "text-metallic-gold" },
+                { icon: MessageSquareQuote, title: "인사담당자 인사이트", desc: "실제 채용 담당자의 시각에서 논리적 근거를 제시합니다.", color: "text-white" }
               ].map((f, i) => (
                 <div key={i} className="flex gap-5 p-6 bg-white/5 rounded-[24px] border border-white/5 hover:bg-white/[0.08] transition-colors">
                   <div className={`p-3 rounded-xl bg-black border border-white/10 ${f.color}`}>
@@ -686,7 +636,7 @@ export default function App() {
                       </div>
                       <div>
                         <h3 className="text-xl font-black tracking-tight">분석 리포트</h3>
-                        <p className="text-xs text-gray-500 uppercase tracking-widest">{corrections.length} CRITICAL POINTS FOUND</p>
+                        <p className="text-xs text-gray-500 uppercase tracking-widest">총 {corrections.length}개의 정밀 진단 및 첨삭 포인트</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
@@ -703,7 +653,7 @@ export default function App() {
                         className="flex items-center justify-center gap-2 px-6 py-3 bg-white text-black rounded-xl font-black text-sm hover:bg-metallic-gold transition-all disabled:opacity-50 active:scale-95"
                       >
                         {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                        DOWNLOAD REPORT
+                        분석 리포트 다운로드
                       </button>
                     </div>
                   </div>
@@ -730,7 +680,7 @@ export default function App() {
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">
                                 <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${item.isSpecialRequestRelated ? 'bg-green-500' : 'bg-red-500'}`} />
-                                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500">Original Content</span>
+                                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-500">기존 자기소개서 내용</span>
                               </div>
                               {item.isSpecialRequestRelated && (
                                 <span className="text-[10px] font-black uppercase tracking-[0.1em] text-green-500 bg-green-500/10 px-2 py-0.5 rounded border border-green-500/20">
@@ -755,7 +705,7 @@ export default function App() {
                           <div className="space-y-3">
                             <div className="flex items-center gap-2">
                               <span className="w-1.5 h-1.5 rounded-full bg-metallic-gold" />
-                              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-metallic-gold">Premium Correction</span>
+                              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-metallic-gold">서류평가위원 명품 첨삭안</span>
                             </div>
                             <p className="text-white font-bold p-6 bg-metallic-gold/5 rounded-2xl border border-metallic-gold/20 leading-[2] text-lg shadow-inner">
                               {item.corrected}
@@ -768,7 +718,7 @@ export default function App() {
                               <MessageSquareQuote className={`w-6 h-6 ${item.isSpecialRequestRelated ? 'text-blue-400' : 'text-gray-400'}`} />
                             </div>
                             <div className="space-y-2">
-                              <p className={`text-[10px] font-black uppercase tracking-[0.3em] ${item.isSpecialRequestRelated ? 'text-blue-400' : 'text-metallic-gold'}`}>Expert Insight</p>
+                              <p className={`text-[10px] font-black uppercase tracking-[0.3em] ${item.isSpecialRequestRelated ? 'text-blue-400' : 'text-metallic-gold'}`}>평가위원 심층 분석</p>
                               <p className={`text-sm leading-[2] font-light ${item.isSpecialRequestRelated ? 'text-blue-300' : 'text-gray-400'}`}>
                                 {item.reason}
                               </p>
@@ -778,57 +728,145 @@ export default function App() {
                       </motion.div>
                     ))}
 
-                    {finalAdvice && (
-                      <motion.div
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        whileInView={{ opacity: 1, scale: 1 }}
-                        viewport={{ once: true }}
-                        className="relative bg-gradient-to-br from-metallic-gold to-deep-gold text-black rounded-[40px] p-10 shadow-[0_20px_50px_-15px_rgba(212,175,55,0.3)] overflow-hidden"
-                      >
-                        <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-32 -mt-32 blur-3xl" />
-                        <div className="relative z-10">
-                          <div className="flex items-center gap-4 mb-8">
-                            <div className="bg-black p-3 rounded-2xl shadow-xl">
-                              <ShieldCheck className="w-8 h-8 text-metallic-gold" />
+                    {finalAdvice && (() => {
+                      interface AdviceSection {
+                        title: string;
+                        paragraphs: string[];
+                      }
+
+                      const parseAdvice = (text: string): AdviceSection[] => {
+                        // Strip raw markdown asterisks and single quotes to guarantee clean rendering
+                        const cleaned = text.replace(/\*\*/g, '').replace(/'/g, '');
+                        const lines = cleaned.split('\n');
+                        const sections: AdviceSection[] = [];
+                        let currentSection: AdviceSection | null = null;
+
+                        for (const line of lines) {
+                          const trimmed = line.trim();
+                          if (!trimmed) continue;
+
+                          // Matches bracketed title, with optional leading numbering like "1. [총평]"
+                          const titleMatch = trimmed.match(/^(\d+\.\s*)?\[(.*?)\]$/);
+                          if (titleMatch) {
+                            const sectionTitle = titleMatch[2].trim();
+                            currentSection = {
+                              title: sectionTitle,
+                              paragraphs: []
+                            };
+                            sections.push(currentSection);
+                          } else {
+                            if (currentSection) {
+                              currentSection.paragraphs.push(trimmed);
+                            } else {
+                              currentSection = {
+                                title: "종합 총평",
+                                paragraphs: [trimmed]
+                              };
+                              sections.push(currentSection);
+                            }
+                          }
+                        }
+                        return sections;
+                      };
+
+                      const getSectionStyle = (title: string) => {
+                        const lowerTitle = title.toLowerCase();
+                        if (lowerTitle.includes('총평') || lowerTitle.includes('평가')) {
+                          return {
+                            bg: 'bg-slate-900/60 border border-slate-700/40 shadow-xl',
+                            textColor: 'text-slate-100',
+                            badge: 'bg-slate-500/10 text-slate-300 border border-slate-500/25',
+                            accent: 'border-l-4 border-l-slate-400',
+                            description: '평가위원 종합 총평'
+                          };
+                        }
+                        if (lowerTitle.includes('핵심 역량') || lowerTitle.includes('역량 요약') || lowerTitle.includes('역량')) {
+                          return {
+                            bg: 'bg-emerald-950/35 border border-emerald-800/40 shadow-xl',
+                            textColor: 'text-emerald-100/90',
+                            badge: 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/25',
+                            accent: 'border-l-4 border-l-emerald-400',
+                            description: '핵심 역량 요약 및 분석'
+                          };
+                        }
+                        if (lowerTitle.includes('감점') || lowerTitle.includes('위험') || lowerTitle.includes('요인') || lowerTitle.includes('취약')) {
+                          return {
+                            bg: 'bg-rose-950/35 border border-rose-800/40 shadow-xl',
+                            textColor: 'text-rose-100/90',
+                            badge: 'bg-rose-500/10 text-rose-300 border border-rose-500/25',
+                            accent: 'border-l-4 border-l-rose-400',
+                            description: '치명적 감점 요인 진단'
+                          };
+                        }
+                        if (lowerTitle.includes('제언') || lowerTitle.includes('전략적')) {
+                          return {
+                            bg: 'bg-blue-950/35 border border-blue-800/40 shadow-xl',
+                            textColor: 'text-blue-100/90',
+                            badge: 'bg-blue-500/10 text-blue-300 border border-blue-500/25',
+                            accent: 'border-l-4 border-l-blue-400',
+                            description: '합격 확률을 높이는 전략적 제언'
+                          };
+                        }
+                        // Default (e.g., 향후 보완 전략)
+                        return {
+                          bg: 'bg-amber-950/35 border border-amber-800/40 shadow-xl',
+                          textColor: 'text-amber-100/90',
+                          badge: 'bg-amber-500/10 text-amber-300 border border-amber-500/25',
+                          accent: 'border-l-4 border-l-amber-400',
+                          description: '향후 보완 전략 및 예상 질문'
+                        };
+                      };
+
+                      return (
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.98 }}
+                          whileInView={{ opacity: 1, scale: 1 }}
+                          viewport={{ once: true }}
+                          className="bg-[#141414] border border-white/5 rounded-[40px] p-8 md:p-12 shadow-2xl space-y-10 relative overflow-hidden"
+                        >
+                          <div className="absolute top-0 right-0 w-64 h-64 bg-metallic-gold/5 rounded-full -mr-32 -mt-32 blur-3xl pointer-events-none" />
+                          
+                          <div className="relative z-10 flex items-center gap-4 border-b border-white/5 pb-6">
+                            <div className="bg-gradient-to-br from-metallic-gold to-deep-gold p-3 rounded-2xl shadow-lg shadow-metallic-gold/10">
+                              <ShieldCheck className="w-8 h-8 text-black" />
                             </div>
-                            <h4 className="text-2xl font-black tracking-tight">평가위원의 최종 조언</h4>
+                            <div>
+                              <h4 className="text-2xl font-black tracking-tight text-white mb-1">평가위원의 최종 조언</h4>
+                              <p className="text-xs text-metallic-gold font-bold tracking-widest uppercase">서류 평가위원 총평 및 심층 피드백</p>
+                            </div>
                           </div>
-                          <div className="text-black/80 text-lg leading-[2] font-medium whitespace-pre-wrap break-keep">
-                            {finalAdvice.split('\n').map((line, i) => {
-                              const trimmed = line.trim();
-                              if (!trimmed) return <div key={i} className="h-4" />;
-                              
-                              const titleMatch = trimmed.match(/^(\d+\.\s*)?\[(.*?)\]$/);
-                              if (titleMatch) {
-                                return (
-                                  <div key={i} className="mt-8 mb-4">
-                                    <span className="inline-block px-5 py-2.5 bg-gradient-to-r from-[#1E293B] to-[#0F172A] text-metallic-gold font-bold text-lg rounded-xl shadow-md border border-white/10 tracking-tight">
-                                      {titleMatch[1] || ''}{titleMatch[2]}
+
+                          <div className="relative z-10 space-y-6">
+                            {parseAdvice(finalAdvice).map((section, idx) => {
+                              const style = getSectionStyle(section.title);
+                              return (
+                                <div
+                                  key={idx}
+                                  className={`rounded-3xl p-6 md:p-8 transition-all hover:translate-x-1 duration-300 ${style.bg} ${style.accent}`}
+                                >
+                                  <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+                                    <span className={`inline-block px-4 py-1.5 rounded-xl font-bold text-sm tracking-tight ${style.badge}`}>
+                                      {section.title}
+                                    </span>
+                                    <span className="text-[10px] uppercase tracking-widest text-white/40 font-bold">
+                                      {style.description}
                                     </span>
                                   </div>
-                                );
-                              }
-
-                              const parts = trimmed.split(/(\*\*.*?\*\*)/g);
-                              return (
-                                <p key={i} className="mb-3">
-                                  {parts.map((part, j) => {
-                                    if (part.startsWith('**') && part.endsWith('**')) {
-                                      return (
-                                        <span key={j} className="font-extrabold text-blue-900 bg-blue-100/70 px-1.5 py-0.5 rounded">
-                                          {part.slice(2, -2)}
-                                        </span>
-                                      );
-                                    }
-                                    return part;
-                                  })}
-                                </p>
+                                  
+                                  <div className={`space-y-4 text-base leading-[1.8] font-normal break-keep text-justify ${style.textColor}`}>
+                                    {section.paragraphs.map((para, pIdx) => (
+                                      <p key={pIdx}>
+                                        {para}
+                                      </p>
+                                    ))}
+                                  </div>
+                                </div>
                               );
                             })}
                           </div>
-                        </div>
-                      </motion.div>
-                    )}
+                        </motion.div>
+                      );
+                    })()}
                   </div>
                 </motion.div>
               ) : (
@@ -857,14 +895,107 @@ export default function App() {
         <div className="flex flex-col md:flex-row justify-between items-center gap-10">
           <div className="flex items-center gap-3 opacity-30 grayscale hover:grayscale-0 hover:opacity-100 transition-all cursor-default">
             <ShieldCheck className="w-6 h-6 text-metallic-gold" />
-            <span className="text-sm font-black tracking-[0.3em] uppercase">Coaching Pass Premium</span>
+            <span className="text-sm font-black tracking-[0.3em] uppercase">코칭패스 프리미엄</span>
           </div>
           <div className="flex flex-col items-center md:items-end gap-2">
-            <p className="text-[10px] font-black text-gray-600 uppercase tracking-widest">Powered by Gemini 3.1 Pro Elite</p>
-            <p className="text-[10px] text-gray-700 tracking-tighter">© 2024 COACHING PASS. ALL RIGHTS RESERVED.</p>
+            <p className="text-[10px] font-black text-gray-600 uppercase tracking-widest">Gemini 3.1 Pro 인텔리전스 탑재</p>
+            <p className="text-[10px] text-gray-700 tracking-tighter">© 2024 COACHING PASS. 모든 권리 보유.</p>
           </div>
         </div>
       </footer>
+
+      {/* API Key Modal */}
+      <AnimatePresence>
+        {isApiKeyModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsApiKeyModalOpen(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            
+            {/* Modal Box */}
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ duration: 0.2 }}
+              className="relative w-full max-w-md bg-[#141414] rounded-3xl border border-white/10 shadow-2xl overflow-hidden p-8 space-y-6"
+            >
+              {/* Close Button */}
+              <button 
+                onClick={() => setIsApiKeyModalOpen(false)}
+                className="absolute top-5 right-5 text-gray-500 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-metallic-gold/10 border border-metallic-gold/20 text-metallic-gold">
+                    <Key className="w-5 h-5" />
+                  </div>
+                  <h3 className="text-xl font-bold text-white tracking-tight">Gemini API Key 설정</h3>
+                </div>
+                <p className="text-xs text-gray-400 leading-relaxed pt-1">
+                  이 서비스는 Cloudflare 분산 클라우드 환경에 최적화되어 있습니다. 직접 발급받으신 개인 API Key를 입력하여 사용 제한과 한도 걱정 없이 무제한으로 고퀄리티 독설 첨삭을 받아보세요.
+                </p>
+              </div>
+              
+              <div className="space-y-3">
+                <label className="text-[10px] font-bold text-metallic-gold uppercase tracking-widest block ml-1">API KEY 입력</label>
+                <input 
+                  type="password"
+                  value={modalApiKeyInput}
+                  onChange={(e) => setModalApiKeyInput(e.target.value)}
+                  placeholder="AI Studio에서 발급받은 API Key (AIzaSy...)"
+                  className="w-full bg-black/50 text-white px-5 py-4 rounded-2xl border border-white/10 focus:border-metallic-gold focus:ring-1 focus:ring-metallic-gold/50 outline-none transition-all placeholder:text-gray-600 font-mono text-sm"
+                />
+              </div>
+
+              <div className="bg-metallic-gold/5 border border-metallic-gold/10 rounded-2xl p-4 text-[11px] text-gray-400 leading-relaxed space-y-1">
+                <p className="text-metallic-gold font-bold">🔒 보안 및 개인정보 보안 안내</p>
+                <p>입력하신 API Key는 브라우저 내부의 안전한 로컬 저장소(localStorage)에만 저장되며, 어떠한 외부 서버로도 전송되거나 기록되지 않고 오직 Gemini API 요청 중계용 프록시로만 전달됩니다.</p>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    localStorage.removeItem('user_gemini_api_key');
+                    setCustomApiKey('');
+                    setModalApiKeyInput('');
+                    setIsApiKeyModalOpen(false);
+                  }}
+                  className="flex-1 bg-white/5 hover:bg-red-500/10 text-gray-400 hover:text-red-400 px-5 py-3.5 rounded-2xl text-xs font-bold transition-all border border-white/10 hover:border-red-500/20 cursor-pointer"
+                >
+                  초기화
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const trimmedKey = modalApiKeyInput.trim();
+                    if (trimmedKey) {
+                      localStorage.setItem('user_gemini_api_key', trimmedKey);
+                      setCustomApiKey(trimmedKey);
+                    } else {
+                      localStorage.removeItem('user_gemini_api_key');
+                      setCustomApiKey('');
+                    }
+                    setIsApiKeyModalOpen(false);
+                  }}
+                  className="flex-1 bg-metallic-gold text-black hover:bg-white hover:text-black px-5 py-3.5 rounded-2xl text-xs font-bold transition-all border border-transparent shadow-lg shadow-metallic-gold/25 cursor-pointer"
+                >
+                  인증 및 저장
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
