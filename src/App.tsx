@@ -20,6 +20,7 @@ import {
   Key
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { GoogleGenAI } from '@google/genai';
 
 interface Correction {
   original: string;
@@ -91,6 +92,68 @@ export default function App() {
 
       // Helper to extract text from a file
       const extractText = async (targetFile: File) => {
+        const fileExtension = targetFile.name.substring(targetFile.name.lastIndexOf('.')).toLowerCase();
+        
+        try {
+          if (['.png', '.jpg', '.jpeg'].includes(fileExtension)) {
+            const base64 = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => {
+                const result = reader.result as string;
+                const commaIndex = result.indexOf(',');
+                resolve(commaIndex !== -1 ? result.substring(commaIndex + 1) : result);
+              };
+              reader.onerror = reject;
+              reader.readAsDataURL(targetFile);
+            });
+            return {
+              image: {
+                mimeType: targetFile.type || `image/${fileExtension.substring(1)}`,
+                data: base64
+              }
+            };
+          } else if (fileExtension === '.txt') {
+            const text = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsText(targetFile, 'utf-8');
+            });
+            return { text };
+          } else if (fileExtension === '.docx') {
+            const arrayBuffer = await targetFile.arrayBuffer();
+            // @ts-ignore
+            if (window.mammoth) {
+              // @ts-ignore
+              const result = await window.mammoth.extractRawText({ arrayBuffer });
+              return { text: result.value };
+            } else {
+              throw new Error('Mammoth.js가 아직 로드되지 않았습니다.');
+            }
+          } else if (fileExtension === '.pdf') {
+            const arrayBuffer = await targetFile.arrayBuffer();
+            // @ts-ignore
+            const pdfjsLib = window.pdfjsLib;
+            if (pdfjsLib) {
+              pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.105/build/pdf.worker.min.js';
+              const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+              let text = '';
+              for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items.map((item: any) => item.str || '').join(' ');
+                text += pageText + '\n';
+              }
+              return { text: text.trim() };
+            } else {
+              throw new Error('PDF.js가 아직 로드되지 않았습니다.');
+            }
+          }
+        } catch (clientErr: any) {
+          console.warn('전 브라우저 내 추출 실패, 서버 Fallback 실행:', clientErr);
+        }
+
+        // Fallback to Server
         const formData = new FormData();
         formData.append('file', targetFile);
         
@@ -177,41 +240,164 @@ export default function App() {
         setProgress(p => p < 95 ? p + 1 : p);
       }, 600);
 
-      // 2. Analyze with Gemini on the server side to protect API keys and prevent runtime failures
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': customApiKey || '',
-        },
-        body: JSON.stringify({
-          name,
-          specialRequest,
-          mainData,
-          jobPostingData,
-          resumeData,
-          careerData,
-          portfolioData,
-          jobMaterialData,
-          experienceData,
-          referenceData
-        })
-      });
-
-      if (!response.ok) {
-        let errMsg = '';
+      // 2. Analyze with Gemini (Client-First if custom API key is available, Fallback to server)
+      let resultText = '';
+      if (customApiKey && customApiKey.trim()) {
         try {
-          const errData = await response.json();
-          errMsg = errData.error || '알 수 없는 오류';
-        } catch {
-          errMsg = `HTTP error ${response.status}`;
+          setProgressMessage('개인 API Key를 통해 브라우저 직접 분석 진행 중...');
+          const ai = new GoogleGenAI({ apiKey: customApiKey.trim() });
+          const parts: any[] = [];
+          
+          const promptText = `
+            당신은 코칭패스의 '수석 서류평가위원'이자 대기업/공기업 채용 설계를 담당했던 HR 전문가입니다.
+            제공된 서류 내용을 매우 날카롭고 세밀하게 분석하여, '합격할 수밖에 없는 서류'로 완벽하게 재탄생시키기 위한 독설적이면서도 건설적인 초정밀 첨삭 리포트를 작성하세요.
+            전체적인 리포트의 분량은 평소보다 3배 이상, 최대한 방대하고 수준 높게 구성해야 합니다.
+    
+            전문 가이드라인:
+            1. 양적/질적 극대화: 분석 리포트의 전체 분량은 최소 4,000자 이상을 목표로 매우 방대하고 디테일하게 작성해야 합니다.
+            2. 압도적인 분량과 초정밀 분석: 문장 하나하나를 해부하듯 쪼개어 분석하세요. 단순히 오탈자나 문법 교정이 절대 아닙니다. 문맥의 흐름, 단어 선택이 채용 담당자에게 주는 매력도, 문장의 리듬과 호흡, 논리적 허점 등 전문가적 시각에서만 볼 수 있는 핵심 포인트들을 반드시 최저 "15개 이상" 찾아내어 Corrections 배열로 상세히 작성하세요.
+            3. 역량과 숫자의 결합: 추상적인 설명("열심히 했다", "역량을 다해 노력했다")은 일절 차단하고, 참고 서류(이력서 등)의 상세 경력과 수치, 구체적인 성과, 비즈니스 액션을 문장 속에 정량화하여 삽입하고 신뢰도를 최고점까지 끌어올리세요.
+            4. 비즈니스 ROI 관점: 이 경험을 지닌 지원자가 실무에 즉시 투입되었을 때 회사에 어떤 가치와 이익(ROI)을 안겨줄 수 있는지가 문장을 통해 직접적으로 느껴지도록 재정비해야 합니다.
+            5. 시각적 가독성과 흐름:
+               - 각 피드백 문단은 가독성을 극대화하기 위해 한 눈에 들어오도록 설계되어야 합니다.
+               - 모든 소제목마다 문단을 구분하고 공백 라인을 두십시오.
+            6. 철저한 호칭 맞춤형 규정 (보안 약속, 대단히 중요):
+               - 분석의 해설 및 제안 이유를 담은 설명 문구(**corrections의 reason** 및 **finalAdvice** 전체)에서는 '지원자님', '귀하', '지원자', '본인' 등 일반적이고 상투적인 대명사를 단 한 번도 사용하지 마세요. 대신 사용자가 입력한 성함인 **"${name.trim()}님"**, **"${name.trim()}님은"**, **"${name.trim()}님의"** 등의 직관적인 호칭만을 정확하게 사용하여 깊은 신뢰 관계가 형성되는 프리미엄 맞춤 피드백을 전달하십시오.
+               - **[절대 주의사항] 실제 첨삭 제안 문장인 'corrected' 필드 내부에는 복사하여 바로 이력서나 자기소개서에 제출할 수 있도록 어떠한 경우에도 지원자의 실명(이름)이나 '지원자님', '귀하', '본인' 등의 대명사를 절대 삽입해서는 안 됩니다. 반드시 본인이 작성하여 제출하는 형식의 순수한 1인칭 완성작이어야 합니다.**
+    
+            ${specialRequest ? `특히 다음 요청사항에 집중하여 평가위원의 시각에서 첨삭을 진행해주세요: "${specialRequest}"\n` : ''}
+            
+            분석 및 첨삭 가이드라인 (평가위원 관점):
+            1. 채용공고 적합성: ${jobPostingData ? '제공된 채용공고의 직무 기술서(JD)와 자격 요건을 바탕으로, 지원자가 해당 직무에 얼마나 최적화된 인재인지 평가하고 부족한 키워드를 삽입하세요.' : '지원 직무의 일반적인 요구 역량과 비교하여 전문성이 드러나는지 확인하세요.'}
+            ${jobMaterialData ? '1-1. 직무자료 반영: 제공된 직무자료를 바탕으로 해당 직무에 대한 깊은 이해도를 반영하여, 지원자의 경험이 실무에 어떻게 적용될 수 있는지 구체적으로 첨삭하세요.\n' : ''}
+            ${experienceData ? '1-2. 경험정리 반영: 제공된 경험정리 자료를 바탕으로 지원자의 구체적인 경험과 성과를 자소서에 자연스럽게 녹여내고, 추상적인 표현을 구체적인 사례로 대체하세요.\n' : ''}
+            ${referenceData ? '1-3. 참고자료 활용: 제공된 참고자료의 내용을 분석하여 첨삭 시 필요한 배경 지식이나 보충 정보로 적극 활용하세요.\n' : ''}
+            
+            응답 형식 (JSON):
+            - corrections: 수정 사항들의 배열 (반드시 최소 15개 이상을 도출하고 각 항목을 세밀하고 극도로 정성껏 기술)
+              - original: 수정이 필요한 원본 문장/문항
+              - corrected: 평가위원이 합격시키고 싶을 정도로 압도적으로 개선된 완성형 제안 문항/문장 (실제 복사해서 바로 자소서 혹은 이력서에 제출할 수 있도록 100% 매끄럽고 완벽한 문장으로 고쳐 쓰십시오. 절대 지원자의 성함이나 '지원자님', '귀하' 등 부르는 호칭을 넣지 마십시오.)
+              - reason: 이 문장이 수정되어야 하는 이유를 평가위원 관점, 부족한 수치적 증명, 채용 담당자가 기피하는 표현의 원인 분석, 개선방안의 비즈니스 임팩트를 포함하여 **최소 3문장 이상(한글 200자 이상)**의 대단히 깊이 있고 설득력 있는 분석으로 작성하십시오. 이 안에서 대상 호칭은 반드시 무조건 **"${name.trim()}님"**, **"${name.trim()}님의"** 등의 표현을 사용하십시오.
+              - isSpecialRequestRelated: 해당 수정 사항이 사용자의 요청사항("${specialRequest || '없음'}")과 직접적으로 관련이 있는지 여부
+            - finalAdvice: 서류 전체를 철저히 해부하고 검토한 후, 서류평가위원 입장에서 제시하는 프리미엄 조언 리포트입니다.
+              - 다음 소제목들을 반드시 포함하여 작성해야 합니다: [총평], [핵심 역량 요약], [치명적 감점 요인], [전략적 제언], [향후 보완 전략 (예상 면접 질문 및 개발 필요 역량 포함)].
+              - 각 소제목의 내용은 **한글 최소 400자 이상**으로 깊이 있게 조언을 전개해야 합니다. 추상적인 제안을 삼가고 행동 지침을 자세히 알려주세요.
+              - 소제목은 반드시 대괄호([])로 감싸서 한 줄에 단독으로 작성하세요 (예: [총평]).
+              - 각 항목 내부에서 내용이 달라질 때마다 반드시 실제 줄바꿈을 적용하여 가치를 더하십시오.
+              - 설명하는 과정에서 호칭은 오직 **"${name.trim()}님"**, **"${name.trim()}님은"**, **"${name.trim()}님의"** 등 맞춤형 개인 호칭만을 철저하게 가동해 주십시오.
+              - 주의: 텍스트 어디에도 별표 두 개(**)나 홑따옴표(')를 절대 사용하지 마세요. 모든 강조나 인용은 격식 있는 문단 서술 및 정중하고 고급스러운 전문적 표현으로 대체하십시오.
+              - 주의사항: 직무 적합도나 서류 경쟁력 점수 등 어떠한 형태의 '점수'도 절대 포함하지 마세요.
+              - 절대 '\\n\\n' 문자열을 그대로 출력하지 말고 실제 줄바꿈을 사용하세요.
+          `;
+          
+          parts.push({ text: promptText });
+          
+          const addPart = (partName: string, data: any) => {
+            if (!data) return;
+            if (data.text) {
+              parts.push({ text: `\n[${partName} 내용]\n${data.text.substring(0, 10000)}\n` });
+            } else if (data.image) {
+              parts.push({ text: `\n[${partName} 이미지]\n` });
+              parts.push({
+                inlineData: {
+                  mimeType: data.image.mimeType,
+                  data: data.image.data
+                }
+              });
+            }
+          };
+          
+          addPart('채용공고 (Target)', jobPostingData);
+          addPart('참고용 이력서', resumeData);
+          addPart('참고용 경력기술서', careerData);
+          addPart('참고용 포트폴리오', portfolioData);
+          addPart('참고용 직무자료', jobMaterialData);
+          addPart('참고용 경험정리', experienceData);
+          addPart('참고자료', referenceData);
+          
+          parts.push({ text: `\n[주요 서류 내용]:\n` });
+          if (mainData.text) {
+            parts.push({ text: mainData.text.substring(0, 15000) });
+          } else if (mainData.image) {
+            parts.push({
+              inlineData: {
+                mimeType: mainData.image.mimeType,
+                data: mainData.image.data
+              }
+            });
+          }
+          
+          const response = await ai.models.generateContent({
+            model: "gemini-3.1-pro-preview",
+            contents: [{ parts }],
+            config: {
+              responseMimeType: "application/json",
+              // @ts-ignore
+              responseSchema: {
+                type: "OBJECT",
+                properties: {
+                  corrections: {
+                    type: "ARRAY",
+                    items: {
+                      type: "OBJECT",
+                      properties: {
+                        original: { type: "STRING" },
+                        corrected: { type: "STRING" },
+                        reason: { type: "STRING" },
+                        isSpecialRequestRelated: { type: "BOOLEAN" },
+                      },
+                      required: ["original", "corrected", "reason", "isSpecialRequestRelated"],
+                    },
+                  },
+                  finalAdvice: { type: "STRING" },
+                },
+                required: ["corrections", "finalAdvice"],
+              },
+            }
+          });
+          
+          resultText = response.text || '';
+          if (!resultText) throw new Error('직접 API 호출 응답 결과가 비어있습니다.');
+        } catch (apiErr: any) {
+          console.error("Direct browser API call failed, falling back to server...", apiErr);
+          throw new Error(`자체 API Key를 이용한 분석 중 오류가 발생했습니다: ${apiErr.message || apiErr}`);
         }
-        throw new Error(`AI 분석 중 오류가 발생했습니다: ${errMsg}`);
-      }
+      } else {
+        const response = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': '',
+          },
+          body: JSON.stringify({
+            name,
+            specialRequest,
+            mainData,
+            jobPostingData,
+            resumeData,
+            careerData,
+            portfolioData,
+            jobMaterialData,
+            experienceData,
+            referenceData
+          })
+        });
 
-      const responseData = await response.json();
-      const resultText = responseData.resultText;
-      if (!resultText) throw new Error('AI 분석 결과가 비어있습니다.');
+        if (!response.ok) {
+          let errMsg = '';
+          try {
+            const errData = await response.json();
+            errMsg = errData.error || '알 수 없는 오류';
+          } catch {
+            errMsg = `HTTP error ${response.status}`;
+          }
+          throw new Error(`AI 분석 중 오류가 발생했습니다: ${errMsg}`);
+        }
+
+        const responseData = await response.json();
+        resultText = responseData.resultText;
+        if (!resultText) throw new Error('AI 분석 결과가 비어있습니다.');
+      }
       
       let parsedResult: AnalysisResult;
       try {
