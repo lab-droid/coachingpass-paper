@@ -1,11 +1,14 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "coachingpass-paper",
+  "main": "worker/index.ts",
   "compatibility_date": "2026-06-16",
   "observability": {
     "enabled": true
   },
   "assets": {
+    "binding": "ASSETS",
+    "directory": "./dist/client",
     "not_found_handling": "single-page-application"
   },
   "compatibility_flags": [
