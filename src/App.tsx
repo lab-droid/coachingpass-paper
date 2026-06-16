@@ -15,9 +15,7 @@ import {
   FileUp,
   MessageSquareQuote,
   ShieldCheck,
-  RotateCcw,
-  X,
-  Key
+  RotateCcw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -59,10 +57,6 @@ export default function App() {
   const [corrections, setCorrections] = useState<Correction[]>([]);
   const [finalAdvice, setFinalAdvice] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const [customApiKey, setCustomApiKey] = useState<string>(() => localStorage.getItem('user_anthropic_api_key') || '');
-  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
-  const [modalApiKeyInput, setModalApiKeyInput] = useState(() => localStorage.getItem('user_anthropic_api_key') || '');
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -245,14 +239,13 @@ export default function App() {
         setProgress(p => p < 95 ? p + 1 : p);
       }, 600);
 
-      // 2. Claude로 분석 (모든 호출은 서버 /api/analyze 경유. 개인 키는 헤더로 전달)
+      // 2. Claude로 분석 (서버 /api/analyze 경유, 서버의 ANTHROPIC_API_KEY 사용)
       let resultText = '';
       {
         const response = await fetch('/api/analyze', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'x-api-key': (customApiKey && customApiKey.trim()) ? customApiKey.trim() : '',
           },
           body: JSON.stringify({
             name,
@@ -408,18 +401,6 @@ export default function App() {
             </h1>
           </div>
           <div className="flex items-center gap-2.5">
-            <button 
-              id="api-key-auth-btn"
-              onClick={() => {
-                const storedKey = localStorage.getItem('user_anthropic_api_key') || '';
-                setModalApiKeyInput(storedKey);
-                setIsApiKeyModalOpen(true);
-              }}
-              className="flex items-center gap-1.5 text-[11px] font-bold tracking-tight text-white hover:text-metallic-gold bg-white/5 border border-white/10 hover:border-metallic-gold/50 px-3.5 py-1.5 rounded-full transition-all duration-300 shadow-md hover:shadow-metallic-gold/10 cursor-pointer"
-            >
-              <ShieldCheck className={`w-3.5 h-3.5 ${customApiKey ? 'text-green-400' : 'text-gray-400'}`} />
-              <span>{customApiKey ? 'API Key 인증됨' : 'API Key 인증'}</span>
-            </button>
             <div className="hidden sm:block text-[10px] font-bold tracking-widest text-metallic-gold border border-metallic-gold/30 px-3 py-1.5 rounded-full uppercase">
               전문 평가위원 AI
             </div>
@@ -996,98 +977,6 @@ export default function App() {
         </div>
       </footer>
 
-      {/* API Key Modal */}
-      <AnimatePresence>
-        {isApiKeyModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            {/* Backdrop */}
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsApiKeyModalOpen(false)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-            />
-            
-            {/* Modal Box */}
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              transition={{ duration: 0.2 }}
-              className="relative w-full max-w-md bg-[#141414] rounded-3xl border border-white/10 shadow-2xl overflow-hidden p-8 space-y-6"
-            >
-              {/* Close Button */}
-              <button 
-                onClick={() => setIsApiKeyModalOpen(false)}
-                className="absolute top-5 right-5 text-gray-500 hover:text-white transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-              
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <div className="p-2 rounded-xl bg-metallic-gold/10 border border-metallic-gold/20 text-metallic-gold">
-                    <Key className="w-5 h-5" />
-                  </div>
-                  <h3 className="text-xl font-bold text-white tracking-tight">Claude API Key 설정</h3>
-                </div>
-                <p className="text-xs text-gray-400 leading-relaxed pt-1">
-                  이 서비스는 Cloudflare 분산 클라우드 환경에 최적화되어 있습니다. 직접 발급받으신 개인 API Key를 입력하여 사용 제한과 한도 걱정 없이 무제한으로 고퀄리티 독설 첨삭을 받아보세요.
-                </p>
-              </div>
-              
-              <div className="space-y-3">
-                <label className="text-[10px] font-bold text-metallic-gold uppercase tracking-widest block ml-1">API KEY 입력</label>
-                <input 
-                  type="password"
-                  value={modalApiKeyInput}
-                  onChange={(e) => setModalApiKeyInput(e.target.value)}
-                  placeholder="Anthropic Console에서 발급받은 API Key (sk-ant-...)"
-                  className="w-full bg-black/50 text-white px-5 py-4 rounded-2xl border border-white/10 focus:border-metallic-gold focus:ring-1 focus:ring-metallic-gold/50 outline-none transition-all placeholder:text-gray-600 font-mono text-sm"
-                />
-              </div>
-
-              <div className="bg-metallic-gold/5 border border-metallic-gold/10 rounded-2xl p-4 text-[11px] text-gray-400 leading-relaxed space-y-1">
-                <p className="text-metallic-gold font-bold">🔒 보안 및 개인정보 보안 안내</p>
-                <p>입력하신 API Key는 브라우저 로컬 저장소(localStorage)에 보관되며, 분석 요청 시에만 본 서비스 서버를 거쳐 Claude API 호출에 사용됩니다. 서버에 별도로 저장하거나 로그로 기록하지 않습니다.</p>
-              </div>
-
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    localStorage.removeItem('user_anthropic_api_key');
-                    setCustomApiKey('');
-                    setModalApiKeyInput('');
-                    setIsApiKeyModalOpen(false);
-                  }}
-                  className="flex-1 bg-white/5 hover:bg-red-500/10 text-gray-400 hover:text-red-400 px-5 py-3.5 rounded-2xl text-xs font-bold transition-all border border-white/10 hover:border-red-500/20 cursor-pointer"
-                >
-                  초기화
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const trimmedKey = modalApiKeyInput.trim();
-                    if (trimmedKey) {
-                      localStorage.setItem('user_anthropic_api_key', trimmedKey);
-                      setCustomApiKey(trimmedKey);
-                    } else {
-                      localStorage.removeItem('user_anthropic_api_key');
-                      setCustomApiKey('');
-                    }
-                    setIsApiKeyModalOpen(false);
-                  }}
-                  className="flex-1 bg-metallic-gold text-black hover:bg-white hover:text-black px-5 py-3.5 rounded-2xl text-xs font-bold transition-all border border-transparent shadow-lg shadow-metallic-gold/25 cursor-pointer"
-                >
-                  인증 및 저장
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
