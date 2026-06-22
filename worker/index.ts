@@ -166,6 +166,18 @@ app.post("/api/analyze", async (c) => {
   }
 });
 
+// "**굵게**" 마크다운을 TextRun 배열로 변환한다(소제목 강조 유지).
+function richRuns(text: string, base: Record<string, any> = {}): TextRun[] {
+  return String(text || "")
+    .split(/(\*\*[^*]+\*\*)/g)
+    .filter((s) => s !== "")
+    .map((seg) =>
+      seg.startsWith("**") && seg.endsWith("**")
+        ? new TextRun({ ...base, text: seg.slice(2, -2), bold: true })
+        : new TextRun({ ...base, text: seg })
+    );
+}
+
 // --- 첨삭 결과 DOCX 생성 ---
 app.post("/api/generate-docx", async (c) => {
   try {
@@ -243,8 +255,7 @@ app.post("/api/generate-docx", async (c) => {
               bold: true,
               color: isSpecial ? "0000FF" : "008000",
             }),
-            new TextRun({
-              text: item.reason,
+            ...richRuns(item.reason, {
               italics: true,
               color: isSpecial ? "0000FF" : undefined,
             }),
@@ -277,9 +288,17 @@ app.post("/api/generate-docx", async (c) => {
       for (const pText of adviceParagraphs) {
         const cleanText = pText
           .replace(/\[\/?(BLUE|RED|YELLOW)\]/g, "")
-          .replace(/\*\*/g, "")
           .replace(/'/g, "");
-        children.push(new Paragraph({ text: cleanText, spacing: { after: 200 } }));
+        // [총평] 같은 소제목 줄은 굵게, 나머지는 인라인 **굵게**를 살려 렌더링한다.
+        const isTitle = /^(\d+\.\s*)?\[.*\]$/.test(cleanText.trim());
+        children.push(
+          new Paragraph({
+            children: isTitle
+              ? [new TextRun({ text: cleanText, bold: true })]
+              : richRuns(cleanText),
+            spacing: { before: isTitle ? 200 : 0, after: 200 },
+          })
+        );
       }
     }
 
