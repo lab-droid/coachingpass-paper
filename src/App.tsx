@@ -15,7 +15,9 @@ import {
   FileUp,
   MessageSquareQuote,
   ShieldCheck,
-  RotateCcw
+  RotateCcw,
+  Copy,
+  Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -56,6 +58,140 @@ function splitParagraphs(text: string): string[] {
     .filter(Boolean);
 }
 
+// ── 리포트 HTML 생성 (PDF 인쇄 + Docs 복사 공용) ──
+// 인라인 스타일만 사용해 Google Docs 붙여넣기에서도 서식이 유지되도록 한다.
+function escapeHtml(s: string): string {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+// HTML 이스케이프 후 **굵게** 를 <strong>으로 변환한다.
+function inlineHtml(text: string): string {
+  return escapeHtml(text).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+}
+
+function paragraphsHtml(text: string, pStyle: string): string {
+  return splitParagraphs(text)
+    .map((p) => `<p style="${pStyle}">${inlineHtml(p)}</p>`)
+    .join('');
+}
+
+const SEV_COLOR: Record<string, string> = {
+  치명적: '#c0392b',
+  중요: '#c87f0a',
+  보완: '#b7791f',
+};
+
+interface ReportItem {
+  original: string;
+  corrected: string;
+  reason: string;
+  severity?: Severity;
+  sourceBasis?: string;
+  isSpecialRequestRelated?: boolean;
+}
+
+// 첨삭 결과 전체를 매력적인 서식의 HTML 문자열로 만든다.
+function buildReportHtml(opts: {
+  name: string;
+  specialRequest?: string;
+  corrections: ReportItem[];
+  finalAdvice: string;
+}): string {
+  const name = (opts.name || '').trim();
+  const sr = (opts.specialRequest || '').trim();
+  const items = opts.corrections || [];
+  const counts: Record<string, number> = { 치명적: 0, 중요: 0, 보완: 0 };
+  items.forEach((c) => {
+    const k = c.severity || '중요';
+    counts[k] = (counts[k] || 0) + 1;
+  });
+
+  const wrap =
+    'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR","Apple SD Gothic Neo",sans-serif;color:#1a1a1a;line-height:1.75;max-width:760px;margin:0 auto;';
+
+  const header = `
+    <div style="border-bottom:3px solid #C5A028;padding-bottom:16px;margin-bottom:18px;">
+      <div style="font-size:11px;letter-spacing:5px;color:#C5A028;font-weight:700;">COACHING&nbsp;PASS</div>
+      <h1 style="font-size:26px;font-weight:800;margin:8px 0 0;letter-spacing:-0.5px;">서류 첨삭${name ? ` · ${escapeHtml(name)}님` : ''}</h1>
+      <p style="font-size:13px;color:#666;margin:9px 0 0;">채용 담당자의 냉정한 시선으로 정밀 진단한 1:1 맞춤 첨삭입니다.<br>합격 가능성을 실질적으로 끌어올릴 핵심 포인트만 담았습니다.</p>
+    </div>`;
+
+  const summary = `
+    <div style="background:#faf7ef;border:1px solid #ecd9a6;border-radius:12px;padding:14px 18px;margin:0 0 22px;font-size:13px;">
+      <span style="font-weight:800;letter-spacing:0.5px;">진단 요약</span>
+      <span style="color:#888;">&nbsp;&nbsp;|&nbsp;&nbsp;</span>
+      <span>총 <strong>${items.length}</strong>개 첨삭 포인트</span>
+      <span style="color:#c0392b;font-weight:700;">&nbsp;&nbsp;치명적 ${counts['치명적']}</span>
+      <span style="color:#c87f0a;font-weight:700;">&nbsp;&nbsp;중요 ${counts['중요']}</span>
+      <span style="color:#b7791f;font-weight:700;">&nbsp;&nbsp;보완 ${counts['보완']}</span>
+    </div>`;
+
+  const requestBox = sr
+    ? `<div style="border-left:4px solid #2563eb;background:#eff6ff;border-radius:8px;padding:11px 15px;margin:0 0 22px;font-size:13px;color:#1e3a8a;"><strong style="color:#2563eb;">반영한 특별 요청&nbsp;&nbsp;</strong>${escapeHtml(sr)}</div>`
+    : '';
+
+  const correctionsHtml = items
+    .map((item, idx) => {
+      const color = SEV_COLOR[item.severity || '중요'] || '#c87f0a';
+      const badge = `<span style="display:inline-block;font-size:11px;font-weight:800;color:#fff;background:${color};border-radius:20px;padding:2px 10px;">${escapeHtml(item.severity || '중요')}</span>`;
+      const special = item.isSpecialRequestRelated
+        ? `<span style="font-size:11px;font-weight:700;color:#16a34a;">&nbsp;· 요청사항 반영</span>`
+        : '';
+      return `
+      <div style="margin:0 0 22px;padding:16px 18px;border:1px solid #ececec;border-radius:14px;background:#fcfcfc;break-inside:avoid;page-break-inside:avoid;">
+        <div style="font-size:12px;font-weight:800;margin:0 0 10px;color:#333;">#${idx + 1}&nbsp;&nbsp;${badge}${special}</div>
+        <p style="font-size:12.5px;color:#777;font-style:italic;margin:0 0 10px;padding:9px 12px;background:#f4f4f4;border-radius:8px;">기존&nbsp;—&nbsp;${inlineHtml(item.original)}</p>
+        <p style="font-size:14px;font-weight:600;margin:0 0 10px;line-height:1.8;"><span style="color:#C5A028;font-weight:800;">첨삭안&nbsp;—&nbsp;</span>${inlineHtml(item.corrected)}</p>
+        <div style="font-size:12.5px;color:#444;border-top:1px dashed #e0e0e0;padding-top:9px;">
+          <span style="font-size:11px;font-weight:800;color:#C5A028;letter-spacing:1px;">평가위원 심층 분석</span>
+          ${paragraphsHtml(item.reason, 'margin:6px 0 6px;')}
+        </div>
+        ${item.sourceBasis ? `<p style="font-size:11px;color:#aaa;margin:8px 0 0;">근거 자료 · ${escapeHtml(item.sourceBasis)}</p>` : ''}
+      </div>`;
+    })
+    .join('');
+
+  const adviceHtml = opts.finalAdvice
+    ? `
+      <h2 style="font-size:18px;font-weight:800;margin:30px 0 14px;border-bottom:2px solid #1a1a1a;padding-bottom:7px;">평가위원의 최종 조언</h2>
+      <div style="font-size:13px;color:#222;line-height:1.85;">
+        ${splitParagraphs(opts.finalAdvice)
+          .map((p) => {
+            const isTitle = /^(\d+\.\s*)?\[.*\]$/.test(p.trim());
+            return isTitle
+              ? `<p style="font-weight:800;font-size:14.5px;color:#C5A028;margin:18px 0 6px;">${escapeHtml(p)}</p>`
+              : `<p style="margin:0 0 9px;">${inlineHtml(p)}</p>`;
+          })
+          .join('')}
+      </div>`
+    : '';
+
+  const footer = `
+    <div style="margin-top:30px;border-top:2px solid #C5A028;padding-top:14px;font-size:11px;color:#999;text-align:center;letter-spacing:0.5px;">
+      코칭패스 · 합격을 설계하는 프리미엄 서류 첨삭
+    </div>`;
+
+  return `<div style="${wrap}">${header}${summary}${requestBox}<h2 style="font-size:18px;font-weight:800;margin:26px 0 16px;border-bottom:2px solid #1a1a1a;padding-bottom:7px;">정밀 첨삭 포인트</h2>${correctionsHtml}${adviceHtml}${footer}</div>`;
+}
+
+// HTML을 단순 텍스트로 환원한다(Docs 미지원 환경의 폴백 + text/plain).
+function htmlToPlain(html: string): string {
+  return html
+    .replace(/<\/(p|h1|h2|div)>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
+}
+
 export default function App() {
   const [file, setFile] = useState<File | null>(null);
   const [resumeFile, setResumeFile] = useState<File | null>(null);
@@ -72,6 +208,7 @@ export default function App() {
   const [progress, setProgress] = useState<number>(0);
   const [progressMessage, setProgressMessage] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [corrections, setCorrections] = useState<Correction[]>([]);
   const [finalAdvice, setFinalAdvice] = useState<string>('');
@@ -363,7 +500,7 @@ export default function App() {
 
       if (progressInterval) clearInterval(progressInterval);
       setProgress(100);
-      setProgressMessage('분석 완료! 우측 상단 "PDF로 저장"으로 리포트를 내려받으세요.');
+      setProgressMessage('첨삭 완료! "PDF로 저장" 또는 "Docs로 복사"로 결과를 가져가세요.');
 
     } catch (err: any) {
       if (progressInterval) clearInterval(progressInterval);
@@ -449,8 +586,29 @@ export default function App() {
     window.print();
   };
 
-  const severityClass = (s?: Severity) =>
-    s === '치명적' ? '#c0392b' : s === '보완' ? '#b7791f' : '#c87f0a';
+  // 서식·레이아웃이 보존된 HTML을 클립보드에 담아 Google Docs에 그대로 붙여넣게 한다.
+  const copyToDocs = async () => {
+    const html = buildReportHtml({ name, specialRequest, corrections, finalAdvice });
+    const plain = htmlToPlain(html);
+    try {
+      const Clip = (window as any).ClipboardItem;
+      if (navigator.clipboard && Clip) {
+        const item = new Clip({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([plain], { type: 'text/plain' }),
+        });
+        await navigator.clipboard.write([item]);
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(plain);
+      } else {
+        throw new Error('clipboard unsupported');
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2200);
+    } catch (e) {
+      setError('복사에 실패했습니다. 브라우저 권한(클립보드)을 확인하거나 PDF로 저장을 이용해주세요.');
+    }
+  };
 
   return (
     <>
@@ -775,6 +933,13 @@ export default function App() {
                         처음부터 다시
                       </button>
                       <button
+                        onClick={copyToDocs}
+                        className="flex items-center justify-center gap-2 px-6 py-3 bg-white/5 text-white rounded-xl font-black text-sm hover:bg-white/10 border border-white/10 transition-all active:scale-95"
+                      >
+                        {copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                        {copied ? '복사 완료' : 'Docs로 복사'}
+                      </button>
+                      <button
                         onClick={printReport}
                         className="flex items-center justify-center gap-2 px-6 py-3 bg-white text-black rounded-xl font-black text-sm hover:bg-metallic-gold transition-all active:scale-95"
                       >
@@ -1044,7 +1209,7 @@ export default function App() {
             <span className="text-sm font-black tracking-[0.3em] uppercase">코칭패스 프리미엄</span>
           </div>
           <div className="flex flex-col items-center md:items-end gap-2">
-            <p className="text-[10px] font-black text-gray-600 uppercase tracking-widest">Claude Opus 4.8 인텔리전스 탑재</p>
+            <p className="text-[10px] font-black text-gray-600 uppercase tracking-widest">프리미엄 AI 첨삭 엔진 탑재</p>
             <p className="text-[10px] text-gray-700 tracking-tighter">© 2024 COACHING PASS. 모든 권리 보유.</p>
           </div>
         </div>
@@ -1053,58 +1218,14 @@ export default function App() {
     </div>
 
     {/* ── PDF 인쇄 전용 리포트(화면에서는 숨김, 인쇄 시에만 출력) ── */}
+    {/* Docs 복사와 동일한 HTML을 사용해 PDF·복사 결과가 완전히 일치하도록 한다. */}
     {corrections.length > 0 && (
-      <div className="print-only" style={{ color: '#1a1a1a', fontFamily: 'inherit', padding: '0 4mm' }}>
-        <div style={{ borderBottom: '2px solid #1a1a1a', paddingBottom: 12, marginBottom: 20 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>
-            코칭패스 서류 첨삭 리포트{name ? ` — ${name}님` : ''}
-          </h1>
-          <p style={{ fontSize: 12, color: '#555', margin: '6px 0 0' }}>
-            서류 평가위원 정밀 첨삭 · 총 {corrections.length}개 포인트 · Claude Opus 4.8
-          </p>
-        </div>
-
-        {corrections.map((item, idx) => (
-          <div key={idx} className="print-block" style={{ marginBottom: 22, paddingBottom: 16, borderBottom: '1px solid #ddd' }}>
-            <p style={{ fontSize: 11, fontWeight: 700, color: severityClass(item.severity), margin: '0 0 6px' }}>
-              [{idx + 1}] 중요도 · {item.severity || '중요'}
-              {item.isSpecialRequestRelated ? '  ·  요청사항 반영' : ''}
-            </p>
-            <p style={{ fontSize: 12, color: '#666', fontStyle: 'italic', margin: '0 0 8px', whiteSpace: 'pre-wrap' }}>
-              기존: “{item.original}”
-            </p>
-            <p style={{ fontSize: 13, fontWeight: 600, margin: '0 0 8px', whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
-              첨삭안: {item.corrected}
-            </p>
-            <div style={{ fontSize: 12, color: '#333', lineHeight: 1.7 }}>
-              {splitParagraphs(item.reason).map((para, pIdx) => (
-                <p key={pIdx} style={{ margin: '0 0 6px', whiteSpace: 'pre-wrap' }}>{renderInline(para)}</p>
-              ))}
-            </div>
-            {item.sourceBasis && (
-              <p style={{ fontSize: 10, color: '#888', margin: '6px 0 0' }}>근거 자료 · {item.sourceBasis}</p>
-            )}
-          </div>
-        ))}
-
-        {finalAdvice && (
-          <div className="print-block" style={{ marginTop: 24 }}>
-            <h2 style={{ fontSize: 18, fontWeight: 800, borderTop: '2px solid #1a1a1a', paddingTop: 14, margin: '0 0 12px' }}>
-              평가위원의 최종 조언
-            </h2>
-            <div style={{ fontSize: 13, color: '#222', lineHeight: 1.8 }}>
-              {splitParagraphs(finalAdvice).map((para, pIdx) => {
-                const isTitle = /^(\d+\.\s*)?\[.*\]$/.test(para.trim());
-                return isTitle ? (
-                  <p key={pIdx} style={{ fontWeight: 800, fontSize: 14, margin: '14px 0 6px' }}>{para}</p>
-                ) : (
-                  <p key={pIdx} style={{ margin: '0 0 8px', whiteSpace: 'pre-wrap' }}>{renderInline(para)}</p>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
+      <div
+        className="print-only"
+        dangerouslySetInnerHTML={{
+          __html: buildReportHtml({ name, specialRequest, corrections, finalAdvice }),
+        }}
+      />
     )}
     </>
   );
