@@ -137,7 +137,7 @@ app.post("/api/analyze", async (c) => {
         reference: !!referenceData,
       },
     });
-    const verifyPrompt = buildVerifyPrompt({ name: trimmedName });
+    const verifyPrompt = buildVerifyPrompt({ name: trimmedName, specialRequest });
     const docParts = buildDocParts({
       mainData,
       jobPostingData,
