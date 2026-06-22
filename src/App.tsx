@@ -259,28 +259,46 @@ export default function App() {
       }, 600);
 
       // 2. Claude로 분석 (서버 /api/analyze 경유, 서버의 ANTHROPIC_API_KEY 사용)
+      // 분석은 수 분이 걸릴 수 있어 서버가 NDJSON 스트림(ping/result/error)으로 응답한다.
+      // ping이 끊기면(서버 중단) idle 타임아웃으로 무한 대기를 방지한다.
       let resultText = '';
       {
-        const response = await fetch('/api/analyze', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            name,
-            specialRequest,
-            mainData,
-            jobPostingData,
-            resumeData,
-            careerData,
-            portfolioData,
-            jobMaterialData,
-            experienceData,
-            referenceData
-          })
-        });
+        const controller = new AbortController();
+        const IDLE_MS = 45000; // 마지막 수신 후 이 시간 동안 무응답이면 중단
+        let idleTimer: ReturnType<typeof setTimeout>;
+        const resetIdle = () => {
+          clearTimeout(idleTimer);
+          idleTimer = setTimeout(() => controller.abort(), IDLE_MS);
+        };
+        const abortMsg = 'AI 분석 응답이 지연되어 중단되었습니다. 잠시 후 다시 시도해주세요.';
+        resetIdle();
+
+        let response: Response;
+        try {
+          response = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify({
+              name,
+              specialRequest,
+              mainData,
+              jobPostingData,
+              resumeData,
+              careerData,
+              portfolioData,
+              jobMaterialData,
+              experienceData,
+              referenceData
+            })
+          });
+        } catch (e: any) {
+          clearTimeout(idleTimer);
+          throw e?.name === 'AbortError' ? new Error(abortMsg) : e;
+        }
 
         if (!response.ok) {
+          clearTimeout(idleTimer);
           let errMsg = '';
           try {
             const errData = await response.json();
@@ -290,9 +308,40 @@ export default function App() {
           }
           throw new Error(`AI 분석 중 오류가 발생했습니다: ${errMsg}`);
         }
+        if (!response.body) {
+          clearTimeout(idleTimer);
+          throw new Error('AI 분석 응답 본문이 비어있습니다.');
+        }
 
-        const responseData = await response.json();
-        resultText = responseData.resultText;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let streamErr: string | null = null;
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            resetIdle();
+            buffer += decoder.decode(value, { stream: true });
+            let nl: number;
+            while ((nl = buffer.indexOf('\n')) >= 0) {
+              const line = buffer.slice(0, nl).trim();
+              buffer = buffer.slice(nl + 1);
+              if (!line) continue;
+              let msg: any;
+              try { msg = JSON.parse(line); } catch { continue; }
+              if (msg.type === 'result') resultText = msg.resultText || '';
+              else if (msg.type === 'error') streamErr = msg.error || 'AI 분석 실패';
+              // msg.type === 'ping' 은 연결 유지용이므로 무시
+            }
+          }
+        } catch (e: any) {
+          clearTimeout(idleTimer);
+          throw e?.name === 'AbortError' ? new Error(abortMsg) : e;
+        }
+        clearTimeout(idleTimer);
+
+        if (streamErr) throw new Error(`AI 분석 중 오류가 발생했습니다: ${streamErr}`);
         if (!resultText) throw new Error('AI 분석 결과가 비어있습니다.');
       }
 
@@ -314,13 +363,8 @@ export default function App() {
 
       if (progressInterval) clearInterval(progressInterval);
       setProgress(100);
-      setProgressMessage('분석 완료!');
+      setProgressMessage('분석 완료! 우측 상단 "PDF로 저장"으로 리포트를 내려받으세요.');
 
-      // Auto-download after successful analysis
-      setTimeout(() => {
-        downloadCorrectedDoc(processedCorrections, parsedResult.finalAdvice, name);
-      }, 500);
-      
     } catch (err: any) {
       if (progressInterval) clearInterval(progressInterval);
       console.error('Analysis error details:', err);
@@ -400,8 +444,17 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // 브라우저 인쇄 대화상자를 띄워 'PDF로 저장'을 유도한다(한글 벡터 텍스트, 고품질).
+  const printReport = () => {
+    window.print();
+  };
+
+  const severityClass = (s?: Severity) =>
+    s === '치명적' ? '#c0392b' : s === '보완' ? '#b7791f' : '#c87f0a';
+
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-white font-sans selection:bg-metallic-gold selection:text-black">
+    <>
+    <div className="screen-only min-h-screen bg-[#0A0A0A] text-white font-sans selection:bg-metallic-gold selection:text-black">
       {/* Header */}
       <header className="bg-black/80 backdrop-blur-md border-b border-white/10 sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
@@ -722,12 +775,11 @@ export default function App() {
                         처음부터 다시
                       </button>
                       <button
-                        onClick={() => downloadCorrectedDoc()}
-                        disabled={isGenerating}
-                        className="flex items-center justify-center gap-2 px-6 py-3 bg-white text-black rounded-xl font-black text-sm hover:bg-metallic-gold transition-all disabled:opacity-50 active:scale-95"
+                        onClick={printReport}
+                        className="flex items-center justify-center gap-2 px-6 py-3 bg-white text-black rounded-xl font-black text-sm hover:bg-metallic-gold transition-all active:scale-95"
                       >
-                        {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                        분석 리포트 다운로드
+                        <Download className="w-4 h-4" />
+                        PDF로 저장
                       </button>
                     </div>
                   </div>
@@ -999,5 +1051,61 @@ export default function App() {
       </footer>
 
     </div>
+
+    {/* ── PDF 인쇄 전용 리포트(화면에서는 숨김, 인쇄 시에만 출력) ── */}
+    {corrections.length > 0 && (
+      <div className="print-only" style={{ color: '#1a1a1a', fontFamily: 'inherit', padding: '0 4mm' }}>
+        <div style={{ borderBottom: '2px solid #1a1a1a', paddingBottom: 12, marginBottom: 20 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>
+            코칭패스 서류 첨삭 리포트{name ? ` — ${name}님` : ''}
+          </h1>
+          <p style={{ fontSize: 12, color: '#555', margin: '6px 0 0' }}>
+            서류 평가위원 정밀 첨삭 · 총 {corrections.length}개 포인트 · Claude Opus 4.8
+          </p>
+        </div>
+
+        {corrections.map((item, idx) => (
+          <div key={idx} className="print-block" style={{ marginBottom: 22, paddingBottom: 16, borderBottom: '1px solid #ddd' }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: severityClass(item.severity), margin: '0 0 6px' }}>
+              [{idx + 1}] 중요도 · {item.severity || '중요'}
+              {item.isSpecialRequestRelated ? '  ·  요청사항 반영' : ''}
+            </p>
+            <p style={{ fontSize: 12, color: '#666', fontStyle: 'italic', margin: '0 0 8px', whiteSpace: 'pre-wrap' }}>
+              기존: “{item.original}”
+            </p>
+            <p style={{ fontSize: 13, fontWeight: 600, margin: '0 0 8px', whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
+              첨삭안: {item.corrected}
+            </p>
+            <div style={{ fontSize: 12, color: '#333', lineHeight: 1.7 }}>
+              {splitParagraphs(item.reason).map((para, pIdx) => (
+                <p key={pIdx} style={{ margin: '0 0 6px', whiteSpace: 'pre-wrap' }}>{renderInline(para)}</p>
+              ))}
+            </div>
+            {item.sourceBasis && (
+              <p style={{ fontSize: 10, color: '#888', margin: '6px 0 0' }}>근거 자료 · {item.sourceBasis}</p>
+            )}
+          </div>
+        ))}
+
+        {finalAdvice && (
+          <div className="print-block" style={{ marginTop: 24 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 800, borderTop: '2px solid #1a1a1a', paddingTop: 14, margin: '0 0 12px' }}>
+              평가위원의 최종 조언
+            </h2>
+            <div style={{ fontSize: 13, color: '#222', lineHeight: 1.8 }}>
+              {splitParagraphs(finalAdvice).map((para, pIdx) => {
+                const isTitle = /^(\d+\.\s*)?\[.*\]$/.test(para.trim());
+                return isTitle ? (
+                  <p key={pIdx} style={{ fontWeight: 800, fontSize: 14, margin: '14px 0 6px' }}>{para}</p>
+                ) : (
+                  <p key={pIdx} style={{ margin: '0 0 8px', whiteSpace: 'pre-wrap' }}>{renderInline(para)}</p>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    )}
+    </>
   );
 }
