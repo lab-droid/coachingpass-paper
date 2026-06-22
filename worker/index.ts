@@ -149,17 +149,45 @@ app.post("/api/analyze", async (c) => {
       referenceData,
     });
 
-    const resultText = await runTwoPassAnalysis(client, {
-      model: "claude-opus-4-8",
-      promptText,
-      verifyPrompt,
-      docParts,
+    // 2패스 분석은 수 분이 걸릴 수 있어 NDJSON 스트림으로 응답한다.
+    // 10초마다 ping을 흘려 프록시·엣지의 idle 타임아웃으로 연결이 끊기는 것을 막고,
+    // 완료 시 result(또는 error) 한 줄을 보낸 뒤 스트림을 닫는다.
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        const send = (obj: any) => {
+          try {
+            controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+          } catch {}
+        };
+        const ping = setInterval(() => send({ type: "ping" }), 10000);
+        try {
+          const resultText = await runTwoPassAnalysis(client, {
+            model: "claude-opus-4-8",
+            promptText,
+            verifyPrompt,
+            docParts,
+          });
+          if (!resultText) send({ type: "error", error: "AI 분석 결과가 비어있습니다." });
+          else send({ type: "result", resultText });
+        } catch (error: any) {
+          console.error("AI Analysis error on worker:", error);
+          send({ type: "error", error: error?.message || "AI Analysis failed" });
+        } finally {
+          clearInterval(ping);
+          try {
+            controller.close();
+          } catch {}
+        }
+      },
     });
 
-    if (!resultText) {
-      return c.json({ error: "AI 분석 결과가 비어있습니다." }, 500);
-    }
-    return c.json({ resultText });
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+      },
+    });
   } catch (error: any) {
     console.error("AI Analysis error on worker:", error);
     return c.json({ error: error?.message || "AI Analysis failed" }, 500);

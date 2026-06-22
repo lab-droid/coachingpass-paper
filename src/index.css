@@ -17,3 +17,19 @@
   --color-metallic-gold: #D4AF37;
   --color-deep-gold: #C5A028;
 }
+
+/* ── PDF 인쇄용 스타일 ── */
+/* 화면에서는 인쇄 리포트를 숨기고, 인쇄 시에는 앱 UI를 숨긴 채 리포트만 출력한다. */
+.print-only { display: none; }
+
+@media print {
+  .screen-only { display: none !important; }
+  .print-only { display: block !important; }
+
+  html, body { background: #ffffff !important; }
+
+  @page { margin: 16mm; }
+
+  /* 항목이 페이지 경계에서 잘리지 않도록 한다. */
+  .print-block { break-inside: avoid; page-break-inside: avoid; }
+}

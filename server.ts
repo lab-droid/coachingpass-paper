@@ -163,21 +163,40 @@ async function startServer() {
       const client = getAnthropicClient(customKey);
       console.log(`Sending two-pass processDocument request to Claude for user: ${name}`);
 
-      const resultText = await runTwoPassAnalysis(client, {
-        model: "claude-opus-4-8",
-        promptText,
-        verifyPrompt,
-        docParts,
-      });
-
-      if (!resultText) {
-        return res.status(500).json({ error: "AI 분석 결과가 비어있습니다." });
+      // 2패스 분석은 수 분이 걸릴 수 있어 NDJSON 스트림으로 응답한다(ping/result/error).
+      res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      const send = (obj: any) => {
+        try {
+          res.write(JSON.stringify(obj) + "\n");
+        } catch {}
+      };
+      const ping = setInterval(() => send({ type: "ping" }), 10000);
+      try {
+        const resultText = await runTwoPassAnalysis(client, {
+          model: "claude-opus-4-8",
+          promptText,
+          verifyPrompt,
+          docParts,
+        });
+        if (!resultText) send({ type: "error", error: "AI 분석 결과가 비어있습니다." });
+        else send({ type: "result", resultText });
+      } catch (error: any) {
+        console.error("AI Analysis error on server:", error);
+        send({ type: "error", error: error.message || "AI Analysis failed" });
+      } finally {
+        clearInterval(ping);
+        res.end();
       }
-
-      res.json({ resultText });
     } catch (error: any) {
       console.error("AI Analysis error on server:", error);
-      res.status(500).json({ error: error.message || "AI Analysis failed" });
+      // 스트림 응답을 이미 시작했다면 헤더를 다시 쓸 수 없으므로 안전하게 종료한다.
+      if (res.headersSent) {
+        try { res.write(JSON.stringify({ type: "error", error: error.message || "AI Analysis failed" }) + "\n"); } catch {}
+        res.end();
+      } else {
+        res.status(500).json({ error: error.message || "AI Analysis failed" });
+      }
     }
   });
 
