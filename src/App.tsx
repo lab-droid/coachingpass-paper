@@ -37,6 +37,25 @@ interface AnalysisResult {
   finalAdvice: string;
 }
 
+// 인라인 **굵게** 마크다운을 <strong>으로 렌더링한다(소제목 강조용).
+function renderInline(text: string): React.ReactNode[] {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+    part.startsWith('**') && part.endsWith('**') ? (
+      <strong key={i} className="font-bold text-white">{part.slice(2, -2)}</strong>
+    ) : (
+      <React.Fragment key={i}>{part}</React.Fragment>
+    )
+  );
+}
+
+// 빈 줄 기준으로 문단을 나눈다(가독성을 위한 문단 분리).
+function splitParagraphs(text: string): string[] {
+  return String(text || '')
+    .split(/\n\s*\n|\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
+
 export default function App() {
   const [file, setFile] = useState<File | null>(null);
   const [resumeFile, setResumeFile] = useState<File | null>(null);
@@ -787,9 +806,11 @@ export default function App() {
                             </div>
                             <div className="space-y-2">
                               <p className={`text-[10px] font-black uppercase tracking-[0.3em] ${item.isSpecialRequestRelated ? 'text-blue-400' : 'text-metallic-gold'}`}>평가위원 심층 분석</p>
-                              <p className={`text-sm leading-[2] font-light ${item.isSpecialRequestRelated ? 'text-blue-300' : 'text-gray-400'}`}>
-                                {item.reason}
-                              </p>
+                              <div className={`space-y-3 text-sm leading-[2] font-light ${item.isSpecialRequestRelated ? 'text-blue-300' : 'text-gray-400'}`}>
+                                {splitParagraphs(item.reason).map((para, pIdx) => (
+                                  <p key={pIdx}>{renderInline(para)}</p>
+                                ))}
+                              </div>
                               {item.sourceBasis && (
                                 <p className="text-[10px] text-gray-600 font-medium tracking-wide pt-1">
                                   근거 자료 · {item.sourceBasis}
@@ -808,8 +829,8 @@ export default function App() {
                       }
 
                       const parseAdvice = (text: string): AdviceSection[] => {
-                        // Strip raw markdown asterisks and single quotes to guarantee clean rendering
-                        const cleaned = text.replace(/\*\*/g, '').replace(/'/g, '');
+                        // 홑따옴표만 정리하고, **굵게** 마크다운은 살려서 소제목 강조에 사용한다.
+                        const cleaned = text.replace(/'/g, '');
                         const lines = cleaned.split('\n');
                         const sections: AdviceSection[] = [];
                         let currentSection: AdviceSection | null = null;
@@ -929,7 +950,7 @@ export default function App() {
                                   <div className={`space-y-4 text-base leading-[1.8] font-normal break-keep text-justify ${style.textColor}`}>
                                     {section.paragraphs.map((para, pIdx) => (
                                       <p key={pIdx}>
-                                        {para}
+                                        {renderInline(para)}
                                       </p>
                                     ))}
                                   </div>
