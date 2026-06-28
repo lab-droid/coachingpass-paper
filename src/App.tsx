@@ -94,6 +94,9 @@ interface ReportItem {
 }
 
 // 첨삭 결과 전체를 매력적인 서식의 HTML 문자열로 만든다.
+// 디자인 콘셉트: 블랙 + 골드 + 화이트를 섞은 프리미엄 리포트.
+// 인라인 스타일만 사용하고, 검은 배경/골드가 PDF 인쇄에서도 그대로 나오도록
+// 색 면(面)이 들어가는 요소마다 print-color-adjust:exact 를 부여한다.
 function buildReportHtml(opts: {
   name: string;
   specialRequest?: string;
@@ -109,72 +112,119 @@ function buildReportHtml(opts: {
     counts[k] = (counts[k] || 0) + 1;
   });
 
-  const wrap =
-    'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR","Apple SD Gothic Neo",sans-serif;color:#1a1a1a;line-height:1.75;max-width:760px;margin:0 auto;';
+  // 색 면이 인쇄에서 사라지지 않도록 강제하는 스니펫.
+  const ce = '-webkit-print-color-adjust:exact;print-color-adjust:exact;';
+  const GOLD = '#C5A028';
+  const GOLD_SOFT = '#E4C76B';
+  const INK = '#0E0E0E';
 
+  const wrap =
+    'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR","Apple SD Gothic Neo",sans-serif;color:#1a1a1a;line-height:1.8;max-width:780px;margin:0 auto;background:#ffffff;';
+
+  // ── 헤더: 블랙 배너 + 골드 포인트 + 화이트 타이틀 ──
   const header = `
-    <div style="border-bottom:3px solid #C5A028;padding-bottom:16px;margin-bottom:18px;">
-      <div style="font-size:11px;letter-spacing:5px;color:#C5A028;font-weight:700;">COACHING&nbsp;PASS</div>
-      <h1 style="font-size:26px;font-weight:800;margin:8px 0 0;letter-spacing:-0.5px;">서류 첨삭${name ? ` · ${escapeHtml(name)}님` : ''}</h1>
-      <p style="font-size:13px;color:#666;margin:9px 0 0;">채용 담당자의 냉정한 시선으로 정밀 진단한 1:1 맞춤 첨삭입니다.<br>합격 가능성을 실질적으로 끌어올릴 핵심 포인트만 담았습니다.</p>
+    <div style="${ce}background:${INK};border:1px solid #2a2a2a;border-radius:20px;padding:34px 38px 30px;margin-bottom:22px;">
+      <div style="font-size:11px;letter-spacing:6px;color:${GOLD};font-weight:800;">C O A C H I N G&nbsp;&nbsp;P A S S</div>
+      <div style="${ce}width:48px;height:3px;background:${GOLD};margin:15px 0 17px;border-radius:3px;"></div>
+      <h1 style="font-size:28px;font-weight:800;margin:0;letter-spacing:-0.6px;color:#ffffff;">서류 첨삭 리포트${name ? `<span style="color:${GOLD};font-weight:700;"> · ${escapeHtml(name)}님</span>` : ''}</h1>
+      <p style="font-size:13px;color:#b8b8b8;margin:14px 0 0;line-height:1.75;">채용 담당자의 냉정한 시선으로 정밀 진단한 1:1 맞춤 첨삭입니다.<br>합격 가능성을 실질적으로 끌어올릴 핵심 포인트만 담았습니다.</p>
     </div>`;
 
+  // ── 진단 요약: 다크 스트립 + 골드 라벨 ──
   const summary = `
-    <div style="background:#faf7ef;border:1px solid #ecd9a6;border-radius:12px;padding:14px 18px;margin:0 0 22px;font-size:13px;">
-      <span style="font-weight:800;letter-spacing:0.5px;">진단 요약</span>
-      <span style="color:#888;">&nbsp;&nbsp;|&nbsp;&nbsp;</span>
-      <span>총 <strong>${items.length}</strong>개 첨삭 포인트</span>
-      <span style="color:#c0392b;font-weight:700;">&nbsp;&nbsp;치명적 ${counts['치명적']}</span>
-      <span style="color:#c87f0a;font-weight:700;">&nbsp;&nbsp;중요 ${counts['중요']}</span>
-      <span style="color:#b7791f;font-weight:700;">&nbsp;&nbsp;보완 ${counts['보완']}</span>
+    <div style="${ce}background:#161616;border:1px solid #2c2c2c;border-radius:14px;padding:15px 22px;margin:0 0 18px;font-size:13px;color:#eaeaea;">
+      <span style="font-weight:800;letter-spacing:1.5px;color:${GOLD};">진단 요약</span>
+      <span style="color:#555;">&nbsp;&nbsp;|&nbsp;&nbsp;</span>
+      <span>총 <strong style="color:#ffffff;">${items.length}</strong>개 첨삭 포인트</span>
+      <span style="color:#e8705f;font-weight:700;">&nbsp;&nbsp;· 치명적 ${counts['치명적']}</span>
+      <span style="color:#e6a945;font-weight:700;">&nbsp;&nbsp;· 중요 ${counts['중요']}</span>
+      <span style="color:#d8b86e;font-weight:700;">&nbsp;&nbsp;· 보완 ${counts['보완']}</span>
     </div>`;
 
   const requestBox = sr
-    ? `<div style="border-left:4px solid #2563eb;background:#eff6ff;border-radius:8px;padding:11px 15px;margin:0 0 22px;font-size:13px;color:#1e3a8a;"><strong style="color:#2563eb;">반영한 특별 요청&nbsp;&nbsp;</strong>${escapeHtml(sr)}</div>`
+    ? `<div style="${ce}border-left:4px solid ${GOLD};background:#fbf6e9;border-radius:10px;padding:13px 17px;margin:0 0 22px;font-size:13px;color:#5a4a16;"><strong style="color:#8a6d12;letter-spacing:0.5px;">✦ 반영한 특별 요청&nbsp;&nbsp;</strong>${escapeHtml(sr)}</div>`
     : '';
+
+  // 섹션 제목 바(블랙 + 골드 액센트).
+  const sectionBar = (label: string, suffix = '') => `
+    <div style="${ce}background:${INK};border-left:4px solid ${GOLD};border-radius:10px;padding:13px 20px;margin:26px 0 18px;">
+      <span style="font-size:15px;font-weight:800;color:#ffffff;letter-spacing:0.4px;">${label}</span>${suffix ? `<span style="color:${GOLD};font-weight:800;font-size:15px;">&nbsp;&nbsp;${suffix}</span>` : ''}
+    </div>`;
 
   const correctionsHtml = items
     .map((item, idx) => {
       const color = SEV_COLOR[item.severity || '중요'] || '#c87f0a';
-      const badge = `<span style="display:inline-block;font-size:11px;font-weight:800;color:#fff;background:${color};border-radius:20px;padding:2px 10px;">${escapeHtml(item.severity || '중요')}</span>`;
+      const badge = `<span style="${ce}display:inline-block;font-size:11px;font-weight:800;color:#fff;background:${color};border-radius:20px;padding:3px 11px;">${escapeHtml(item.severity || '중요')}</span>`;
       const special = item.isSpecialRequestRelated
-        ? `<span style="font-size:11px;font-weight:700;color:#16a34a;">&nbsp;· 요청사항 반영</span>`
+        ? `<span style="${ce}display:inline-block;font-size:11px;font-weight:700;color:#16803a;background:#e7f6ec;border-radius:20px;padding:3px 10px;">· 요청사항 반영</span>`
         : '';
       return `
-      <div style="margin:0 0 22px;padding:16px 18px;border:1px solid #ececec;border-radius:14px;background:#fcfcfc;break-inside:avoid;page-break-inside:avoid;">
-        <div style="font-size:12px;font-weight:800;margin:0 0 10px;color:#333;">#${idx + 1}&nbsp;&nbsp;${badge}${special}</div>
-        <p style="font-size:12.5px;color:#777;font-style:italic;margin:0 0 10px;padding:9px 12px;background:#f4f4f4;border-radius:8px;">기존&nbsp;—&nbsp;${inlineHtml(item.original)}</p>
-        <p style="font-size:14px;font-weight:600;margin:0 0 10px;line-height:1.8;"><span style="color:#C5A028;font-weight:800;">첨삭안&nbsp;—&nbsp;</span>${inlineHtml(item.corrected)}</p>
-        <div style="font-size:12.5px;color:#444;border-top:1px dashed #e0e0e0;padding-top:9px;">
-          <span style="font-size:11px;font-weight:800;color:#C5A028;letter-spacing:1px;">평가위원 심층 분석</span>
-          ${paragraphsHtml(item.reason, 'margin:6px 0 6px;')}
+      <div style="${ce}margin:0 0 20px;border:1px solid #e8e8e8;border-radius:18px;overflow:hidden;background:#ffffff;break-inside:avoid;page-break-inside:avoid;">
+        <div style="${ce}background:#fafafa;border-bottom:1px solid #efefef;padding:13px 22px;">
+          <span style="${ce}display:inline-block;font-size:12px;font-weight:800;color:#fff;background:${INK};border-radius:8px;padding:3px 11px;vertical-align:middle;">#${idx + 1}</span>
+          &nbsp;&nbsp;${badge}&nbsp;${special}
         </div>
-        ${item.sourceBasis ? `<p style="font-size:11px;color:#aaa;margin:8px 0 0;">근거 자료 · ${escapeHtml(item.sourceBasis)}</p>` : ''}
+        <div style="padding:20px 22px;">
+          <div style="margin:0 0 16px;">
+            <div style="font-size:10px;font-weight:800;letter-spacing:1.8px;color:#9a9a9a;margin:0 0 8px;">기존 내용</div>
+            <p style="${ce}font-size:13px;color:#6f6f6f;font-style:italic;margin:0;padding:12px 15px;background:#f5f5f5;border-left:3px solid #dcdcdc;border-radius:9px;line-height:1.8;">${inlineHtml(item.original)}</p>
+          </div>
+          <div style="${ce}background:${INK};border:1px solid #2a2a2a;border-radius:14px;padding:17px 19px;margin:0 0 16px;">
+            <div style="font-size:10px;font-weight:800;letter-spacing:1.8px;color:${GOLD};margin:0 0 9px;">✦ 서류평가위원 첨삭안</div>
+            <p style="font-size:14.5px;font-weight:600;color:#ffffff;margin:0;line-height:1.9;">${inlineHtml(item.corrected)}</p>
+          </div>
+          <div style="border-top:1px solid #eee;padding-top:14px;">
+            <div style="font-size:10px;font-weight:800;letter-spacing:1.8px;color:${GOLD};margin:0 0 4px;">평가위원 심층 분석</div>
+            ${paragraphsHtml(item.reason, `font-size:13px;color:#3a3a3a;margin:10px 0 0;line-height:1.9;`)}
+          </div>
+          ${item.sourceBasis ? `<p style="font-size:11px;color:#a8a8a8;margin:13px 0 0;padding-top:10px;border-top:1px dashed #ececec;">근거 자료 · ${escapeHtml(item.sourceBasis)}</p>` : ''}
+        </div>
       </div>`;
     })
     .join('');
 
-  const adviceHtml = opts.finalAdvice
-    ? `
-      <h2 style="font-size:18px;font-weight:800;margin:30px 0 14px;border-bottom:2px solid #1a1a1a;padding-bottom:7px;">평가위원의 최종 조언</h2>
-      <div style="font-size:13px;color:#222;line-height:1.85;">
-        ${splitParagraphs(opts.finalAdvice)
-          .map((p) => {
-            const isTitle = /^(\d+\.\s*)?\[.*\]$/.test(p.trim());
-            return isTitle
-              ? `<p style="font-weight:800;font-size:14.5px;color:#C5A028;margin:18px 0 6px;">${escapeHtml(p)}</p>`
-              : `<p style="margin:0 0 9px;">${inlineHtml(p)}</p>`;
-          })
-          .join('')}
+  // ── 최종 조언: [소제목] 단위로 카드를 나눠 가독성과 분량감을 높인다 ──
+  let adviceHtml = '';
+  if (opts.finalAdvice) {
+    interface AdvSec { title: string; paras: string[]; }
+    const secs: AdvSec[] = [];
+    let cur: AdvSec | null = null;
+    splitParagraphs(opts.finalAdvice).forEach((p) => {
+      const m = p.trim().match(/^(\d+\.\s*)?\[(.*?)\]$/);
+      if (m) {
+        cur = { title: m[2].trim(), paras: [] };
+        secs.push(cur);
+      } else {
+        if (!cur) {
+          cur = { title: '종합 총평', paras: [] };
+          secs.push(cur);
+        }
+        cur.paras.push(p);
+      }
+    });
+    const cards = secs
+      .map(
+        (s) => `
+      <div style="${ce}border:1px solid #e8e8e8;border-radius:16px;overflow:hidden;margin:0 0 14px;break-inside:avoid;page-break-inside:avoid;">
+        <div style="${ce}background:${INK};border-left:4px solid ${GOLD};padding:12px 19px;">
+          <span style="font-size:13.5px;font-weight:800;color:${GOLD_SOFT};letter-spacing:0.4px;">${escapeHtml(s.title)}</span>
+        </div>
+        <div style="padding:16px 19px;background:#ffffff;">
+          ${s.paras.map((p) => `<p style="font-size:13px;color:#333;margin:0 0 11px;line-height:1.9;">${inlineHtml(p)}</p>`).join('')}
+        </div>
       </div>`
-    : '';
+      )
+      .join('');
+    adviceHtml = `${sectionBar('평가위원의 최종 조언')}${cards}`;
+  }
 
   const footer = `
-    <div style="margin-top:30px;border-top:2px solid #C5A028;padding-top:14px;font-size:11px;color:#999;text-align:center;letter-spacing:0.5px;">
-      코칭패스 · 합격을 설계하는 프리미엄 서류 첨삭
+    <div style="${ce}background:${INK};border-radius:16px;padding:20px;margin-top:28px;text-align:center;">
+      <div style="font-size:11px;letter-spacing:4px;color:${GOLD};font-weight:800;">COACHING&nbsp;PASS</div>
+      <div style="font-size:11px;color:#888;margin-top:7px;letter-spacing:0.5px;">합격을 설계하는 프리미엄 서류 첨삭</div>
     </div>`;
 
-  return `<div style="${wrap}">${header}${summary}${requestBox}<h2 style="font-size:18px;font-weight:800;margin:26px 0 16px;border-bottom:2px solid #1a1a1a;padding-bottom:7px;">정밀 첨삭 포인트</h2>${correctionsHtml}${adviceHtml}${footer}</div>`;
+  return `<div style="${wrap}">${header}${summary}${requestBox}${sectionBar('정밀 첨삭 포인트', String(items.length))}${correctionsHtml}${adviceHtml}${footer}</div>`;
 }
 
 // HTML을 단순 텍스트로 환원한다(Docs 미지원 환경의 폴백 + text/plain).

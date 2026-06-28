@@ -28,6 +28,12 @@
 
   html, body { background: #ffffff !important; }
 
+  /* 블랙·골드 색 면이 PDF 출력에서 사라지지 않도록 강제한다. */
+  .print-only, .print-only * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
   @page { margin: 16mm; }
 
   /* 항목이 페이지 경계에서 잘리지 않도록 한다. */
