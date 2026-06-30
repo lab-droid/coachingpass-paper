@@ -268,13 +268,16 @@ export default function App() {
   const [corrections, setCorrections] = useState<Correction[]>([]);
   // 사용자가 직접 입력한 Anthropic API Key. localStorage에 보관해 새로고침에도 유지된다.
   // 입력되면 /api/analyze 요청에 x-api-key 헤더로 실려 서버의 기본 키 대신 사용된다.
+  // HTTP 헤더 값은 ISO-8859-1만 허용되므로, 복붙 시 섞이는 제로폭 공백·스마트따옴표·전각문자
+  // 등(출력 가능한 ASCII가 아닌 모든 문자)을 제거해야 fetch가 헤더를 만들 수 있다.
+  const sanitizeApiKey = (key: string) => (key || '').replace(/[^\x21-\x7E]/g, '');
   const [apiKey, setApiKey] = useState<string>(() => {
-    try { return localStorage.getItem('anthropic_api_key') || ''; } catch { return ''; }
+    try { return sanitizeApiKey(localStorage.getItem('anthropic_api_key') || ''); } catch { return ''; }
   });
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [apiKeyDraft, setApiKeyDraft] = useState('');
   const saveApiKey = (key: string) => {
-    const k = key.trim();
+    const k = sanitizeApiKey(key);
     setApiKey(k);
     try {
       if (k) localStorage.setItem('anthropic_api_key', k);
@@ -488,7 +491,8 @@ export default function App() {
             headers: {
               'Content-Type': 'application/json',
               // 사용자가 본인 키를 입력했으면 그 키로 호출한다(서버 기본 키 대신).
-              ...(apiKey ? { 'x-api-key': apiKey } : {}),
+              // 헤더는 ISO-8859-1만 허용되므로 전송 직전에도 한 번 더 정제한다.
+              ...(sanitizeApiKey(apiKey) ? { 'x-api-key': sanitizeApiKey(apiKey) } : {}),
             },
             signal: controller.signal,
             body: JSON.stringify({
