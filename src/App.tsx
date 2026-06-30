@@ -247,6 +247,22 @@ function htmlToPlain(html: string): string {
     .trim();
 }
 
+// 서버/Anthropic 원본 오류 문자열을 사용자 친화적 안내로 변환한다.
+// 키 관련 오류(401/권한/결제)는 "API Key 설정"으로 유도한다.
+function friendlyAnalyzeError(raw: string): string {
+  const r = (raw || '').toLowerCase();
+  if (r.includes('invalid x-api-key') || r.includes('authentication_error') || /\b401\b/.test(r)) {
+    return '입력하신 API 키가 유효하지 않습니다. 우측 상단 "API Key" → "키 삭제"로 지우고 다시 시도하시거나, Anthropic Console에서 올바른 키를 복사해 입력해주세요.';
+  }
+  if (r.includes('permission_error') || r.includes('billing') || /\b403\b/.test(r) || r.includes('forbidden')) {
+    return 'API 키에 모델 접근 권한이 없거나 결제 문제로 요청이 거부되었습니다. "API Key"에 권한 있는 키를 입력하거나 Anthropic Console에서 결제·권한을 확인해주세요.';
+  }
+  if (r.includes('rate_limit') || /\b429\b/.test(r)) {
+    return '요청이 일시적으로 너무 많습니다(rate limit). 잠시 후 다시 시도해주세요.';
+  }
+  return `AI 분석 중 오류가 발생했습니다: ${raw}`;
+}
+
 export default function App() {
   const [file, setFile] = useState<File | null>(null);
   const [resumeFile, setResumeFile] = useState<File | null>(null);
@@ -522,7 +538,7 @@ export default function App() {
           } catch {
             errMsg = `HTTP error ${response.status}`;
           }
-          throw new Error(`AI 분석 중 오류가 발생했습니다: ${errMsg}`);
+          throw new Error(friendlyAnalyzeError(errMsg));
         }
         if (!response.body) {
           clearTimeout(idleTimer);
@@ -557,7 +573,7 @@ export default function App() {
         }
         clearTimeout(idleTimer);
 
-        if (streamErr) throw new Error(`AI 분석 중 오류가 발생했습니다: ${streamErr}`);
+        if (streamErr) throw new Error(friendlyAnalyzeError(streamErr));
         if (!resultText) throw new Error('AI 분석 결과가 비어있습니다.');
       }
 
