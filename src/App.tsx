@@ -266,6 +266,22 @@ export default function App() {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [corrections, setCorrections] = useState<Correction[]>([]);
+  // 사용자가 직접 입력한 Anthropic API Key. localStorage에 보관해 새로고침에도 유지된다.
+  // 입력되면 /api/analyze 요청에 x-api-key 헤더로 실려 서버의 기본 키 대신 사용된다.
+  const [apiKey, setApiKey] = useState<string>(() => {
+    try { return localStorage.getItem('anthropic_api_key') || ''; } catch { return ''; }
+  });
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [apiKeyDraft, setApiKeyDraft] = useState('');
+  const saveApiKey = (key: string) => {
+    const k = key.trim();
+    setApiKey(k);
+    try {
+      if (k) localStorage.setItem('anthropic_api_key', k);
+      else localStorage.removeItem('anthropic_api_key');
+    } catch { /* localStorage 비활성 환경은 무시 */ }
+    setShowApiKeyModal(false);
+  };
   const [finalAdvice, setFinalAdvice] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -469,7 +485,11 @@ export default function App() {
         try {
           response = await fetch('/api/analyze', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              // 사용자가 본인 키를 입력했으면 그 키로 호출한다(서버 기본 키 대신).
+              ...(apiKey ? { 'x-api-key': apiKey } : {}),
+            },
             signal: controller.signal,
             body: JSON.stringify({
               name,
@@ -689,9 +709,83 @@ export default function App() {
             <div className="hidden sm:block text-[10px] font-bold tracking-widest text-metallic-gold border border-metallic-gold/30 px-3 py-1.5 rounded-full uppercase">
               전문 평가위원 AI
             </div>
+            <button
+              type="button"
+              onClick={() => { setApiKeyDraft(apiKey); setShowApiKeyModal(true); }}
+              className={`text-[11px] font-bold tracking-wide px-3 py-1.5 rounded-full border transition-colors ${
+                apiKey
+                  ? 'border-metallic-gold/60 text-metallic-gold bg-metallic-gold/10'
+                  : 'border-white/20 text-gray-300 hover:border-white/40 hover:text-white'
+              }`}
+              title="Anthropic API Key 설정"
+            >
+              {apiKey ? '● API Key' : 'API Key'}
+            </button>
           </div>
         </div>
       </header>
+
+      {/* ── API Key 설정 모달 ── */}
+      {showApiKeyModal && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm px-6"
+          onClick={() => setShowApiKeyModal(false)}
+        >
+          <div
+            className="w-full max-w-md bg-[#141414] border border-white/10 rounded-2xl p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-black text-white">Anthropic API Key</h3>
+            <p className="text-xs text-gray-400 mt-2 leading-relaxed">
+              본인의 Anthropic API Key를 입력하면 서버 기본 키 대신 이 키로 첨삭이 실행됩니다.
+              키는 이 브라우저(localStorage)에만 저장되며 서버에 보관되지 않습니다.
+            </p>
+            <input
+              type="password"
+              value={apiKeyDraft}
+              onChange={(e) => setApiKeyDraft(e.target.value)}
+              placeholder="sk-ant-..."
+              autoFocus
+              spellCheck={false}
+              className="w-full mt-4 bg-black/50 border border-white/15 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:border-metallic-gold/60 focus:outline-none"
+            />
+            <a
+              href="https://console.anthropic.com/settings/keys"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-block text-[11px] text-metallic-gold/80 hover:text-metallic-gold mt-2"
+            >
+              API Key 발급받기 →
+            </a>
+            <div className="flex items-center justify-between gap-2 mt-5">
+              <button
+                type="button"
+                onClick={() => saveApiKey('')}
+                className="text-xs font-bold text-gray-400 hover:text-red-400 px-2 py-2"
+                disabled={!apiKey}
+              >
+                키 삭제
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowApiKeyModal(false)}
+                  className="text-sm font-bold text-gray-300 hover:text-white px-4 py-2"
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  onClick={() => saveApiKey(apiKeyDraft)}
+                  className="text-sm font-black text-black bg-metallic-gold hover:bg-metallic-gold/90 rounded-xl px-5 py-2"
+                >
+                  저장
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <main className="max-w-5xl mx-auto px-6 py-16">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-16">

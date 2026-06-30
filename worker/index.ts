@@ -163,7 +163,7 @@ app.post("/api/analyze", async (c) => {
         const ping = setInterval(() => send({ type: "ping" }), 10000);
         try {
           const resultText = await runTwoPassAnalysis(client, {
-            model: "claude-sonnet-4-6",
+            model: "claude-opus-4-8",
             promptText,
             verifyPrompt,
             docParts,
