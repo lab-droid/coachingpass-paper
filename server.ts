@@ -174,7 +174,7 @@ async function startServer() {
       const ping = setInterval(() => send({ type: "ping" }), 10000);
       try {
         const resultText = await runTwoPassAnalysis(client, {
-          model: "claude-opus-4-8",
+          model: "claude-sonnet-4-6",
           promptText,
           verifyPrompt,
           docParts,
