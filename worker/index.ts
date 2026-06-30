@@ -33,6 +33,8 @@ type Bindings = {
   // 예) https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_name>/anthropic
   // 미설정이면 SDK 기본값(https://api.anthropic.com)으로 직접 호출.
   ANTHROPIC_BASE_URL?: string;
+  // 관리자 모드 암호(서버 전용). 클라이언트에는 절대 노출되지 않는다.
+  ADMIN_PASSWORD?: string;
   ASSETS: { fetch: (req: Request) => Promise<Response> };
 };
 
@@ -101,6 +103,19 @@ app.get("/api/diag", async (c) => {
   } catch (e: any) {
     return c.json({ ok: false, keySource, fetchError: e?.message || String(e) });
   }
+});
+
+// --- 관리자 암호 검증(서버에서만) ---
+// 암호는 서버 환경변수 ADMIN_PASSWORD 로만 존재한다(클라이언트 번들·devtools에 노출 안 됨).
+app.post("/api/admin-auth", async (c) => {
+  let pw = "";
+  try {
+    const b = await c.req.json<any>();
+    pw = (b?.password ?? "").toString();
+  } catch { /* 빈 본문 */ }
+  const expected = c.env.ADMIN_PASSWORD || "";
+  if (expected && pw === expected) return c.json({ ok: true });
+  return c.json({ ok: false }, 401);
 });
 
 // --- 파일 텍스트/이미지 추출 (클라이언트 추출 실패 시 폴백) ---

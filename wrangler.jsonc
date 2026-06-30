@@ -11,7 +11,10 @@
   // Anthropic 호출을 Cloudflare AI Gateway 경유로 보낸다(Worker→Anthropic 엣지 차단 우회).
   // SDK가 뒤에 /v1/messages 를 붙이므로 끝은 .../anthropic 까지만.
   "vars": {
-    "ANTHROPIC_BASE_URL": "https://gateway.ai.cloudflare.com/v1/de063d9bed29da1d23249a4fcc20eeaa/coachingpass-paper/anthropic"
+    "ANTHROPIC_BASE_URL": "https://gateway.ai.cloudflare.com/v1/de063d9bed29da1d23249a4fcc20eeaa/coachingpass-paper/anthropic",
+    // 관리자 모드 암호(서버 전용 변수 → 클라이언트 번들에 포함되지 않음).
+    // 더 강하게 숨기려면 이 줄을 지우고 `wrangler secret put ADMIN_PASSWORD` 로 설정.
+    "ADMIN_PASSWORD": "cp1004"
   },
   "observability": {
     "enabled": true

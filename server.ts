@@ -78,6 +78,14 @@ async function startServer() {
     res.json({ status: "ok", time: new Date().toISOString() });
   });
 
+  // 관리자 암호 검증(서버 전용). 암호는 클라이언트에 노출되지 않는다.
+  app.post("/api/admin-auth", (req, res) => {
+    const pw = (req.body?.password ?? "").toString();
+    const expected = process.env.ADMIN_PASSWORD || "cp1004"; // 로컬 개발 기본값
+    if (expected && pw === expected) return res.json({ ok: true });
+    return res.status(401).json({ ok: false });
+  });
+
   app.post("/api/extract-text", upload.single("file"), async (req, res) => {
     console.log(`Processing extraction for: ${req.file?.originalname}`);
     try {

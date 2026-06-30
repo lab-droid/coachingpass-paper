@@ -303,27 +303,41 @@ export default function App() {
   };
   // ── 관리자 모드 ──
   // API Key 입력은 관리자 암호 입력 후에만 노출한다(일반 사용자에겐 숨김).
-  // ⚠️ 클라이언트 측 게이트라 강한 보안은 아니다(번들에 암호가 포함됨). UI 노출 제어용.
-  const ADMIN_PW = 'cp1004';
+  // 암호 검증은 서버(/api/admin-auth)에서 수행한다 → 암호가 클라이언트 번들·devtools에
+  // 노출되지 않는다. (단, 관리자 진입 '상태' 자체는 클라이언트 측이므로 강한 보안은 아님)
   const [isAdmin, setIsAdmin] = useState<boolean>(() => {
     try { return localStorage.getItem('cp_admin') === '1'; } catch { return false; }
   });
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [adminPwDraft, setAdminPwDraft] = useState('');
   const [adminPwError, setAdminPwError] = useState<string | null>(null);
+  const [adminChecking, setAdminChecking] = useState(false);
   const openAdminModal = () => { setAdminPwDraft(''); setAdminPwError(null); setShowAdminModal(true); };
-  const submitAdminPw = () => {
-    if (adminPwDraft === ADMIN_PW) {
-      setIsAdmin(true);
-      try { localStorage.setItem('cp_admin', '1'); } catch { /* 무시 */ }
-      setShowAdminModal(false);
-      setAdminPwDraft('');
-      setAdminPwError(null);
-      // 진입 직후 바로 API Key 입력 모달을 연다.
-      setApiKeyDraft(apiKey);
-      setShowApiKeyModal(true);
-    } else {
-      setAdminPwError('관리자 암호가 올바르지 않습니다.');
+  const submitAdminPw = async () => {
+    if (adminChecking) return;
+    setAdminChecking(true);
+    setAdminPwError(null);
+    try {
+      const res = await fetch('/api/admin-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: adminPwDraft }),
+      });
+      if (res.ok) {
+        setIsAdmin(true);
+        try { localStorage.setItem('cp_admin', '1'); } catch { /* 무시 */ }
+        setShowAdminModal(false);
+        setAdminPwDraft('');
+        // 진입 직후 바로 API Key 입력 모달을 연다.
+        setApiKeyDraft(apiKey);
+        setShowApiKeyModal(true);
+      } else {
+        setAdminPwError('관리자 암호가 올바르지 않습니다.');
+      }
+    } catch {
+      setAdminPwError('인증 요청에 실패했습니다. 잠시 후 다시 시도해주세요.');
+    } finally {
+      setAdminChecking(false);
     }
   };
   const exitAdmin = () => {
@@ -816,7 +830,8 @@ export default function App() {
               onKeyDown={(e) => { if (e.key === 'Enter') submitAdminPw(); }}
               placeholder="관리자 암호"
               autoFocus
-              className="w-full mt-4 bg-black/50 border border-white/15 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:border-metallic-gold/60 focus:outline-none"
+              disabled={adminChecking}
+              className="w-full mt-4 bg-black/50 border border-white/15 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:border-metallic-gold/60 focus:outline-none disabled:opacity-60"
             />
             {adminPwError && (
               <p className="text-xs text-red-400 mt-2">{adminPwError}</p>
@@ -832,9 +847,10 @@ export default function App() {
               <button
                 type="button"
                 onClick={submitAdminPw}
-                className="text-sm font-black text-black bg-metallic-gold hover:bg-metallic-gold/90 rounded-xl px-5 py-2"
+                disabled={adminChecking}
+                className="text-sm font-black text-black bg-metallic-gold hover:bg-metallic-gold/90 rounded-xl px-5 py-2 disabled:opacity-60"
               >
-                확인
+                {adminChecking ? '확인 중…' : '확인'}
               </button>
             </div>
           </div>
