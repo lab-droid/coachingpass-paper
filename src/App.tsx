@@ -756,10 +756,10 @@ export default function App() {
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="relative w-10 h-10 rounded-xl overflow-hidden shadow-lg shadow-metallic-gold/15 border border-metallic-gold/30">
-              <img 
+              <img
                 id="header-logo-image"
-                src="/logo.png" 
-                alt="CoachingPass Logo" 
+                src="/logo.svg"
+                alt="CoachingPass Logo"
                 className="w-full h-full object-cover"
                 referrerPolicy="no-referrer"
               />
