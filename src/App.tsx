@@ -301,6 +301,35 @@ export default function App() {
     } catch { /* localStorage 비활성 환경은 무시 */ }
     setShowApiKeyModal(false);
   };
+  // ── 관리자 모드 ──
+  // API Key 입력은 관리자 암호 입력 후에만 노출한다(일반 사용자에겐 숨김).
+  // ⚠️ 클라이언트 측 게이트라 강한 보안은 아니다(번들에 암호가 포함됨). UI 노출 제어용.
+  const ADMIN_PW = 'cp1004';
+  const [isAdmin, setIsAdmin] = useState<boolean>(() => {
+    try { return localStorage.getItem('cp_admin') === '1'; } catch { return false; }
+  });
+  const [showAdminModal, setShowAdminModal] = useState(false);
+  const [adminPwDraft, setAdminPwDraft] = useState('');
+  const [adminPwError, setAdminPwError] = useState<string | null>(null);
+  const openAdminModal = () => { setAdminPwDraft(''); setAdminPwError(null); setShowAdminModal(true); };
+  const submitAdminPw = () => {
+    if (adminPwDraft === ADMIN_PW) {
+      setIsAdmin(true);
+      try { localStorage.setItem('cp_admin', '1'); } catch { /* 무시 */ }
+      setShowAdminModal(false);
+      setAdminPwDraft('');
+      setAdminPwError(null);
+      // 진입 직후 바로 API Key 입력 모달을 연다.
+      setApiKeyDraft(apiKey);
+      setShowApiKeyModal(true);
+    } else {
+      setAdminPwError('관리자 암호가 올바르지 않습니다.');
+    }
+  };
+  const exitAdmin = () => {
+    setIsAdmin(false);
+    try { localStorage.removeItem('cp_admin'); } catch { /* 무시 */ }
+  };
   const [finalAdvice, setFinalAdvice] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -729,21 +758,88 @@ export default function App() {
             <div className="hidden sm:block text-[10px] font-bold tracking-widest text-metallic-gold border border-metallic-gold/30 px-3 py-1.5 rounded-full uppercase">
               전문 평가위원 AI
             </div>
-            <button
-              type="button"
-              onClick={() => { setApiKeyDraft(apiKey); setShowApiKeyModal(true); }}
-              className={`text-[11px] font-bold tracking-wide px-3 py-1.5 rounded-full border transition-colors ${
-                apiKey
-                  ? 'border-metallic-gold/60 text-metallic-gold bg-metallic-gold/10'
-                  : 'border-white/20 text-gray-300 hover:border-white/40 hover:text-white'
-              }`}
-              title="Anthropic API Key 설정"
-            >
-              {apiKey ? '● API Key' : 'API Key'}
-            </button>
+            {isAdmin ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => { setApiKeyDraft(apiKey); setShowApiKeyModal(true); }}
+                  className={`text-[11px] font-bold tracking-wide px-3 py-1.5 rounded-full border transition-colors ${
+                    apiKey
+                      ? 'border-metallic-gold/60 text-metallic-gold bg-metallic-gold/10'
+                      : 'border-white/20 text-gray-300 hover:border-white/40 hover:text-white'
+                  }`}
+                  title="Anthropic API Key 설정"
+                >
+                  {apiKey ? '● API Key' : 'API Key'}
+                </button>
+                <button
+                  type="button"
+                  onClick={exitAdmin}
+                  className="text-[11px] font-bold tracking-wide px-3 py-1.5 rounded-full border border-white/15 text-gray-400 hover:text-white hover:border-white/30 transition-colors"
+                  title="관리자 모드 해제"
+                >
+                  관리자 해제
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={openAdminModal}
+                className="text-[11px] font-bold tracking-wide px-3 py-1.5 rounded-full border border-white/20 text-gray-300 hover:border-white/40 hover:text-white transition-colors"
+                title="관리자 모드"
+              >
+                관리자 모드
+              </button>
+            )}
           </div>
         </div>
       </header>
+
+      {/* ── 관리자 암호 모달 ── */}
+      {showAdminModal && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm px-6"
+          onClick={() => setShowAdminModal(false)}
+        >
+          <div
+            className="w-full max-w-sm bg-[#141414] border border-white/10 rounded-2xl p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-black text-white">관리자 모드</h3>
+            <p className="text-xs text-gray-400 mt-2 leading-relaxed">
+              관리자 암호를 입력하면 API Key를 설정할 수 있습니다.
+            </p>
+            <input
+              type="password"
+              value={adminPwDraft}
+              onChange={(e) => { setAdminPwDraft(e.target.value); setAdminPwError(null); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') submitAdminPw(); }}
+              placeholder="관리자 암호"
+              autoFocus
+              className="w-full mt-4 bg-black/50 border border-white/15 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:border-metallic-gold/60 focus:outline-none"
+            />
+            {adminPwError && (
+              <p className="text-xs text-red-400 mt-2">{adminPwError}</p>
+            )}
+            <div className="flex items-center justify-end gap-2 mt-5">
+              <button
+                type="button"
+                onClick={() => setShowAdminModal(false)}
+                className="text-sm font-bold text-gray-300 hover:text-white px-4 py-2"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={submitAdminPw}
+                className="text-sm font-black text-black bg-metallic-gold hover:bg-metallic-gold/90 rounded-xl px-5 py-2"
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── API Key 설정 모달 ── */}
       {showApiKeyModal && (
