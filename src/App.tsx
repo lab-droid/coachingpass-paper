@@ -118,16 +118,21 @@ function buildReportHtml(opts: {
   const GOLD_SOFT = '#E4C76B';
   const INK = '#0E0E0E';
 
-  const wrap =
-    'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR","Apple SD Gothic Neo",sans-serif;color:#1a1a1a;line-height:1.8;max-width:780px;margin:0 auto;background:#ffffff;';
+  // 바깥 래퍼는 전체 폭(표지 풀블리드용), 본문은 별도 컨테이너에서 폭·여백을 준다.
+  const outer =
+    'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR","Apple SD Gothic Neo",sans-serif;color:#1a1a1a;line-height:1.8;background:#ffffff;';
+  // @page margin:0 이므로 본문 여백은 여기서 준다.
+  const content = 'max-width:780px;margin:0 auto;padding:18mm 22px 22mm;';
 
-  // ── 헤더: 블랙 배너 + 골드 포인트 + 화이트 타이틀 ──
-  const header = `
-    <div style="${ce}background:${INK};border:1px solid #2a2a2a;border-radius:20px;padding:34px 38px 30px;margin-bottom:22px;">
-      <div style="font-size:11px;letter-spacing:6px;color:${GOLD};font-weight:800;">C O A C H I N G&nbsp;&nbsp;P A S S</div>
-      <div style="${ce}width:48px;height:3px;background:${GOLD};margin:15px 0 17px;border-radius:3px;"></div>
-      <h1 style="font-size:28px;font-weight:800;margin:0;letter-spacing:-0.6px;color:#ffffff;">서류 첨삭 리포트${name ? `<span style="color:${GOLD};font-weight:700;"> · ${escapeHtml(name)}님</span>` : ''}</h1>
-      <p style="font-size:13px;color:#b8b8b8;margin:14px 0 0;line-height:1.75;">채용 담당자의 냉정한 시선으로 정밀 진단한 1:1 맞춤 첨삭입니다.<br>합격 가능성을 실질적으로 끌어올릴 핵심 포인트만 담았습니다.</p>
+  // ── 표지(첫 페이지 전체를 채우는 풀페이지 커버) ──
+  // A4 한 장을 가득 채우고(min-height:297mm) 다음 내용을 다음 페이지로 넘긴다.
+  const cover = `
+    <div style="${ce}background:${INK};color:#ffffff;min-height:297mm;box-sizing:border-box;padding:118mm 50px 0;page-break-after:always;break-after:page;">
+      <div style="font-size:13px;letter-spacing:7px;color:${GOLD};font-weight:800;">C O A C H I N G&nbsp;&nbsp;P A S S</div>
+      <div style="${ce}width:60px;height:3px;background:${GOLD};margin:22px 0 26px;border-radius:3px;"></div>
+      <h1 style="font-size:46px;font-weight:800;margin:0;letter-spacing:-1px;line-height:1.2;color:#ffffff;">서류 첨삭 솔루션</h1>
+      ${name ? `<div style="font-size:22px;font-weight:700;color:${GOLD_SOFT};margin:18px 0 0;">${escapeHtml(name)}님</div>` : ''}
+      <p style="font-size:15px;color:#b8b8b8;margin:30px 0 0;line-height:1.8;">채용 담당자의 냉정한 시선으로 정밀 진단한 1:1 맞춤 첨삭 솔루션입니다.<br>합격 가능성을 실질적으로 끌어올릴 핵심 포인트만 담았습니다.</p>
     </div>`;
 
   // ── 진단 요약: 다크 스트립 + 골드 라벨 ──
@@ -224,7 +229,7 @@ function buildReportHtml(opts: {
       <div style="font-size:11px;color:#888;margin-top:7px;letter-spacing:0.5px;">합격을 설계하는 프리미엄 서류 첨삭</div>
     </div>`;
 
-  return `<div style="${wrap}">${header}${summary}${requestBox}${sectionBar('정밀 첨삭 포인트', String(items.length))}${correctionsHtml}${adviceHtml}${footer}</div>`;
+  return `<div style="${outer}">${cover}<div style="${content}">${summary}${requestBox}${sectionBar('정밀 첨삭 포인트', String(items.length))}${correctionsHtml}${adviceHtml}${footer}</div></div>`;
 }
 
 // HTML을 단순 텍스트로 환원한다(Docs 미지원 환경의 폴백 + text/plain).
