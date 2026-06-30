@@ -3,6 +3,11 @@
   "name": "coachingpass-paper",
   "main": "worker/index.ts",
   "compatibility_date": "2026-06-16",
+  // dist/ 는 git에 없으므로(.gitignore), 배포 전 항상 클라이언트 빌드를 실행한다.
+  // 이렇게 하면 Cloudflare가 `wrangler deploy`만 호출해도 assets(dist/client)가 생성된다.
+  "build": {
+    "command": "npm run build"
+  },
   "observability": {
     "enabled": true
   },
