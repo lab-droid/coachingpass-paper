@@ -22,7 +22,9 @@ function getAnthropicClient(customKey?: string): Anthropic {
   if (!key) {
     throw new Error("ANTHROPIC_API_KEY가 없습니다. 우측 상단의 API Key 인증 버튼을 클릭하여 본인의 Anthropic API Key를 입력해주시거나, 로컬/클라우드 환경에 ANTHROPIC_API_KEY 환경변수를 설정해주세요.");
   }
-  return new Anthropic({ apiKey: key });
+  // ANTHROPIC_BASE_URL이 설정되면 그 경로(AI Gateway 등)로 호출.
+  const baseURL = (process.env.ANTHROPIC_BASE_URL || "").trim();
+  return new Anthropic(baseURL ? { apiKey: key, baseURL } : { apiKey: key });
 }
 
 // "**굵게**" 마크다운을 TextRun 배열로 변환한다(소제목 강조 유지).

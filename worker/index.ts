@@ -29,8 +29,18 @@ import {
 
 type Bindings = {
   ANTHROPIC_API_KEY: string;
+  // 설정 시 Anthropic 호출을 이 베이스 URL로 보낸다(Cloudflare AI Gateway 경유 등).
+  // 예) https://gateway.ai.cloudflare.com/v1/<account_id>/<gateway_name>/anthropic
+  // 미설정이면 SDK 기본값(https://api.anthropic.com)으로 직접 호출.
+  ANTHROPIC_BASE_URL?: string;
   ASSETS: { fetch: (req: Request) => Promise<Response> };
 };
+
+// Anthropic 클라이언트 옵션을 만든다. baseURL이 있으면 함께 넘긴다.
+function anthropicOpts(apiKey: string, baseURL?: string) {
+  const b = (baseURL || "").trim();
+  return b ? { apiKey, baseURL: b } : { apiKey };
+}
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -61,8 +71,10 @@ app.get("/api/diag", async (c) => {
   const apiKey = customKey && customKey.trim() ? customKey.trim() : c.env.ANTHROPIC_API_KEY;
   const keySource = customKey && customKey.trim() ? "header" : c.env.ANTHROPIC_API_KEY ? "env" : "none";
   if (!apiKey) return c.json({ ok: false, keySource, note: "API Key가 없습니다(헤더 미전달 + env 미설정)." });
+  // baseURL이 설정돼 있으면(AI Gateway 등) 그 경로로, 아니면 직접 호출.
+  const base = (c.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/+$/, "");
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
+    const r = await fetch(`${base}/v1/messages`, {
       method: "POST",
       headers: {
         "x-api-key": apiKey,
@@ -80,6 +92,7 @@ app.get("/api/diag", async (c) => {
       ok: r.ok,
       upstreamStatus: r.status,
       keySource,
+      baseUrl: base,
       requestId: r.headers.get("request-id") || r.headers.get("anthropic-request-id"),
       cfRay: r.headers.get("cf-ray"),
       server: r.headers.get("server"),
@@ -165,7 +178,7 @@ app.post("/api/analyze", async (c) => {
       );
     }
 
-    const client = new Anthropic({ apiKey });
+    const client = new Anthropic(anthropicOpts(apiKey, c.env.ANTHROPIC_BASE_URL));
     const trimmedName = name.trim();
 
     const promptText = buildAnalysisPrompt({
