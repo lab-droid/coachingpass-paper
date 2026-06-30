@@ -8,6 +8,11 @@
   "build": {
     "command": "npm run build"
   },
+  // Anthropic 호출을 Cloudflare AI Gateway 경유로 보낸다(Worker→Anthropic 엣지 차단 우회).
+  // SDK가 뒤에 /v1/messages 를 붙이므로 끝은 .../anthropic 까지만.
+  "vars": {
+    "ANTHROPIC_BASE_URL": "https://gateway.ai.cloudflare.com/v1/de063d9bed29da1d23249a4fcc20eeaa/coachingpass-paper/anthropic"
+  },
   "observability": {
     "enabled": true
   },
