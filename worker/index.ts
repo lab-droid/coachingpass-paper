@@ -49,6 +49,47 @@ function base64FromBytes(bytes: Uint8Array): string {
 // --- 헬스체크 ---
 app.get("/api/health", (c) => c.json({ status: "ok", time: new Date().toISOString() }));
 
+// --- 진단: Anthropic 호출이 어디서 막히는지 확인 ---
+// 브라우저로 /api/diag 를 열면(또는 본인 키를 x-api-key 헤더로 보내면) 워커가
+// Anthropic에 최소 요청(1토큰)을 직접 fetch 하고, 응답의 상태/헤더를 그대로 돌려준다.
+//  - requestId 가 있으면  → Anthropic 애플리케이션까지 도달함(=계정/권한/결제 문제)
+//  - requestId 없고 cfRay/cloudflare 만 있으면 → Anthropic 엣지에서 차단됨(=Worker 경유 차단)
+app.get("/api/diag", async (c) => {
+  const customKey =
+    c.req.header("x-api-key") ||
+    c.req.header("authorization")?.replace("Bearer ", "");
+  const apiKey = customKey && customKey.trim() ? customKey.trim() : c.env.ANTHROPIC_API_KEY;
+  const keySource = customKey && customKey.trim() ? "header" : c.env.ANTHROPIC_API_KEY ? "env" : "none";
+  if (!apiKey) return c.json({ ok: false, keySource, note: "API Key가 없습니다(헤더 미전달 + env 미설정)." });
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-opus-4-8",
+        max_tokens: 8,
+        messages: [{ role: "user", content: "hi" }],
+      }),
+    });
+    const text = await r.text();
+    return c.json({
+      ok: r.ok,
+      upstreamStatus: r.status,
+      keySource,
+      requestId: r.headers.get("request-id") || r.headers.get("anthropic-request-id"),
+      cfRay: r.headers.get("cf-ray"),
+      server: r.headers.get("server"),
+      body: text.slice(0, 600),
+    });
+  } catch (e: any) {
+    return c.json({ ok: false, keySource, fetchError: e?.message || String(e) });
+  }
+});
+
 // --- 파일 텍스트/이미지 추출 (클라이언트 추출 실패 시 폴백) ---
 app.post("/api/extract-text", async (c) => {
   try {
